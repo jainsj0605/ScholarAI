@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}AI Research Analyzer{% endblock %}</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh;display:flex;flex-direction:column}
+
+    /* NAV */
+    nav{background:#13182a;border-bottom:1px solid #1e2a40;padding:0 32px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:100}
+    .nav-brand{color:#7c9ef8;font-weight:700;font-size:1rem;padding:16px 20px 16px 0;border-right:1px solid #1e2a40;margin-right:8px;white-space:nowrap}
+    .nav-brand span{font-size:1.2rem;margin-right:6px}
+    .nav-link{padding:16px 18px;font-size:.82rem;color:#666;text-decoration:none;border-bottom:2px solid transparent;transition:.2s;white-space:nowrap}
+    .nav-link:hover{color:#a0b8f8}
+    .nav-link.active{color:#7c9ef8;border-bottom-color:#7c9ef8}
+    .nav-link.locked{color:#333;cursor:not-allowed;pointer-events:none}
+    .nav-status{margin-left:auto;font-size:.75rem;color:#555;padding:6px 12px;background:#0f1117;border-radius:20px;border:1px solid #1e2a40}
+    .nav-status.ready{color:#4caf82;border-color:#2a4a35}
+
+    /* LAYOUT */
+    .page{max-width:1000px;margin:0 auto;padding:32px 20px;flex:1}
+
+    /* CARDS */
+    .card{background:#1a1f2e;border:1px solid #2a3347;border-radius:12px;padding:24px;margin-bottom:20px}
+    .card-title{font-size:.95rem;color:#7c9ef8;margin-bottom:16px;display:flex;align-items:center;gap:8px;font-weight:600}
+
+    /* BUTTONS */
+    .btn{padding:9px 22px;border:none;border-radius:8px;cursor:pointer;font-size:.88rem;font-weight:500;transition:opacity .2s,transform .1s;display:inline-flex;align-items:center;gap:6px}
+    .btn:hover{opacity:.85;transform:translateY(-1px)}
+    .btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
+    .btn-primary{background:#7c9ef8;color:#0f1117}
+    .btn-success{background:#4caf82;color:#0f1117}
+    .btn-warning{background:#f0a04b;color:#0f1117}
+    .btn-ghost{background:transparent;color:#7c9ef8;border:1px solid #7c9ef8}
+
+    /* MARKDOWN OUTPUT */
+    .md-out{background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:18px;font-size:.86rem;line-height:1.8;overflow-y:auto;color:#c8d0e0}
+    .md-out:empty::before{content:"Output will appear here...";color:#333}
+    .md-out h1,.md-out h2{color:#7c9ef8;font-size:1rem;margin:14px 0 6px;border-bottom:1px solid #2a3347;padding-bottom:4px}
+    .md-out h3{color:#a0b8f8;font-size:.92rem;margin:10px 0 4px}
+    .md-out strong{color:#f0c070}
+    .md-out ul,.md-out ol{padding-left:20px;margin:6px 0}
+    .md-out li{margin:3px 0}
+    .md-out p{margin:6px 0}
+    .md-out code{background:#1e2535;padding:2px 6px;border-radius:4px;font-size:.82rem;color:#a8d8a8}
+    .md-out blockquote{border-left:3px solid #7c9ef8;padding-left:12px;color:#888;margin:8px 0}
+
+    /* MISC */
+    .loader{display:inline-block;width:13px;height:13px;border:2px solid #333;border-top-color:#7c9ef8;border-radius:50%;animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.74rem}
+    .badge-ok{background:#1e3a2a;color:#4caf82}
+    .badge-err{background:#3a1e1e;color:#e05c5c}
+    .badge-info{background:#1e2a3a;color:#7c9ef8}
+    .hidden{display:none!important}
+    .divider{border:none;border-top:1px solid #2a3347;margin:20px 0}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media(max-width:600px){.grid2{grid-template-columns:1fr}}
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand"><span>🔬</span>Research AI</div>
+  <a href="/" class="nav-link {% if page=='upload' %}active{% endif %}" id="nav-upload">Upload</a>
+  <a href="/qa" class="nav-link {% if page=='qa' %}active{% endif %}" id="nav-qa">Q&amp;A</a>
+  <a href="/compare" class="nav-link {% if page=='compare' %}active{% endif %}" id="nav-compare">Compare</a>
+  <a href="/improve" class="nav-link {% if page=='improve' %}active{% endif %}" id="nav-improve">Improve</a>
+  <a href="/download" class="nav-link {% if page=='download' %}active{% endif %}" id="nav-download">Download</a>
+  <div class="nav-status" id="navStatus">No paper loaded</div>
+</nav>
+
+<div class="page">
+  {% block content %}{% endblock %}
+</div>
+
+<script>
+  marked.setOptions({ breaks:true, gfm:true });
+  function md(t){ return marked.parse(t||"") }
+
+  function setBtn(id, loading, label){
+    const b = document.getElementById(id);
+    if(!b) return;
+    b.disabled = loading;
+    b.innerHTML = loading ? `<span class="loader"></span> ${label}` : label;
+  }
+
+  // Shared session state via sessionStorage
+  const SS = {
+    get: k => { try{ return JSON.parse(sessionStorage.getItem(k)) }catch{ return null } },
+    set: (k,v) => sessionStorage.setItem(k, JSON.stringify(v)),
+    str: k => sessionStorage.getItem(k) || ""
+  };
+
+  // Update nav status from session
+  function refreshNav(){
+    const topic = SS.str("topic");
+    const st = document.getElementById("navStatus");
+    if(topic){ st.textContent = topic; st.className = "nav-status ready"; }
+    else { st.textContent = "No paper loaded"; st.className = "nav-status"; }
+  }
+  refreshNav();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,12 @@
+.env
+venv/
+env/
+.vscode/
+*.pdf
+temp_*.png
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log

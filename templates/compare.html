@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Compare — Research AI{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <div>
+    <h2 style="font-size:1.4rem;color:#f0a04b;margin-bottom:4px">🔍 Comparative Study</h2>
+    <p style="color:#666;font-size:.88rem">Search recent arXiv papers on the same topic and compare them with your paper.</p>
+  </div>
+  <div id="paperTag"></div>
+</div>
+
+<div id="noPaper" class="card hidden">
+  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a></p>
+</div>
+
+<div id="mainContent">
+  <div class="card">
+    <div class="card-title">🔎 Search Settings</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <label style="font-size:.78rem;color:#888;display:block;margin-bottom:6px">Search topic (auto-detected)</label>
+        <input type="text" id="topicInput"
+               style="width:100%;background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:10px 14px;color:#e0e0e0;font-size:.88rem;outline:none"
+               onfocus="this.style.borderColor='#f0a04b'" onblur="this.style.borderColor='#2a3347'"/>
+      </div>
+      <div style="padding-top:20px">
+        <button class="btn btn-warning" id="compareBtn" onclick="runComparison()">Run Comparative Study</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results (hidden until run) -->
+  <div id="resultsSection" class="hidden">
+    <div class="card">
+      <div class="card-title">📚 Related Papers Found</div>
+      <div id="papersList" style="display:flex;flex-direction:column;gap:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Comparative Analysis</div>
+      <div id="comparisonOutput" class="md-out" style="max-height:500px"></div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px">
+      <a href="/improve"><button class="btn btn-success">Continue to Improve →</button></a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const topic = SS.str("topic");
+  if(!topic){
+    document.getElementById("noPaper").classList.remove("hidden");
+    document.getElementById("mainContent").classList.add("hidden");
+  } else {
+    document.getElementById("topicInput").value = topic;
+    document.getElementById("paperTag").innerHTML = `<span class="badge badge-info">${topic}</span>`;
+  }
+
+  // Restore saved comparison
+  const savedComp = SS.str("comparison");
+  const savedPapers = SS.get("papers");
+  if(savedComp && savedPapers){
+    showResults(savedPapers, savedComp);
+  }
+
+  async function runComparison(){
+    const summary = SS.str("summary");
+    const t = document.getElementById("topicInput").value.trim() || topic;
+    setBtn("compareBtn", true, "Searching arXiv...");
+    document.getElementById("resultsSection").classList.add("hidden");
+    try{
+      const res  = await fetch("/compare",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({summary, topic: t})});
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      SS.set("comparison", data.comparison);
+      SS.set("papers", data.papers);
+      showResults(data.papers, data.comparison);
+    } catch(e){
+      alert("Error: " + e.message);
+    }
+    setBtn("compareBtn", false, "Run Comparative Study");
+  }
+
+  function showResults(papers, comparison){
+    const list = document.getElementById("papersList");
+    list.innerHTML = papers.map(p=>`
+      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+          <span class="badge badge-info" style="flex-shrink:0">${p.year}</span>
+          <span style="color:#7c9ef8;font-size:.88rem;font-weight:600">${p.title}</span>
+        </div>
+        <p style="color:#888;font-size:.8rem;line-height:1.6">${p.summary.substring(0,280)}...</p>
+      </div>`).join('');
+
+    document.getElementById("comparisonOutput").innerHTML = md(comparison);
+    document.getElementById("resultsSection").classList.remove("hidden");
+  }
+</script>
+{% endblock %}

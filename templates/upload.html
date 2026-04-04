@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Upload — Research AI{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:28px">
+  <h2 style="font-size:1.4rem;color:#7c9ef8;margin-bottom:6px">Upload Research Paper</h2>
+  <p style="color:#666;font-size:.88rem">Upload a PDF to get started. The paper will be analyzed and available across all pages.</p>
+</div>
+
+<!-- Upload card -->
+<div class="card">
+  <div class="card-title">📄 Select PDF</div>
+  <div id="dropZone" style="border:2px dashed #2a3347;border-radius:10px;padding:48px;text-align:center;cursor:pointer;transition:.2s"
+       onclick="document.getElementById('fileInput').click()"
+       ondragover="event.preventDefault();this.style.borderColor='#7c9ef8'"
+       ondragleave="this.style.borderColor='#2a3347'"
+       ondrop="handleDrop(event)">
+    <input type="file" id="fileInput" accept=".pdf" style="display:none" onchange="handleFile(event)"/>
+    <div style="font-size:3rem;margin-bottom:10px">📂</div>
+    <p id="fileLabel" style="color:#888;font-size:.9rem">Click or drag & drop a PDF file here</p>
+  </div>
+  <div class="row" style="margin-top:16px">
+    <button class="btn btn-primary" id="uploadBtn" onclick="uploadPaper()" disabled>Analyze Paper</button>
+    <span id="uploadStatus"></span>
+  </div>
+</div>
+
+<!-- Summary card (hidden until upload) -->
+<div class="card hidden" id="summaryCard">
+  <div class="card-title">
+    📋 Paper Summary
+    <span id="topicBadge" class="badge badge-info" style="margin-left:8px"></span>
+  </div>
+
+  <!-- Tabs -->
+  <div style="display:flex;gap:4px;margin-bottom:14px">
+    <button class="btn btn-ghost" id="tabSumBtn" onclick="switchTab('sum')" style="font-size:.8rem;padding:5px 14px">Summary</button>
+    <button class="btn" id="tabFigBtn" onclick="switchTab('fig')" style="font-size:.8rem;padding:5px 14px;background:#252d3d;color:#888;border:1px solid #2a3347">Figures</button>
+  </div>
+
+  <div id="tabSum" class="md-out" style="max-height:420px"></div>
+  <div id="tabFig" class="md-out hidden" style="max-height:420px"></div>
+</div>
+
+<!-- Next steps -->
+<div class="card hidden" id="nextCard">
+  <div class="card-title">🚀 What would you like to do next?</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+    <a href="/qa" style="text-decoration:none">
+      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#7c9ef8'" onmouseout="this.style.borderColor='#2a3347'">
+        <div style="font-size:1.6rem;margin-bottom:8px">💬</div>
+        <div style="color:#7c9ef8;font-weight:600;font-size:.9rem;margin-bottom:4px">Q&A</div>
+        <div style="color:#666;font-size:.8rem">Ask questions about the paper using RAG</div>
+      </div>
+    </a>
+    <a href="/compare" style="text-decoration:none">
+      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#f0a04b'" onmouseout="this.style.borderColor='#2a3347'">
+        <div style="font-size:1.6rem;margin-bottom:8px">🔍</div>
+        <div style="color:#f0a04b;font-weight:600;font-size:.9rem;margin-bottom:4px">Compare</div>
+        <div style="color:#666;font-size:.8rem">Compare with recent arXiv research</div>
+      </div>
+    </a>
+    <a href="/improve" style="text-decoration:none">
+      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#4caf82'" onmouseout="this.style.borderColor='#2a3347'">
+        <div style="font-size:1.6rem;margin-bottom:8px">✏️</div>
+        <div style="color:#4caf82;font-weight:600;font-size:.9rem;margin-bottom:4px">Improve</div>
+        <div style="color:#666;font-size:.8rem">Rewrite weak sections with AI</div>
+      </div>
+    </a>
+    <a href="/download" style="text-decoration:none">
+      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#2a3347'">
+        <div style="font-size:1.6rem;margin-bottom:8px">📥</div>
+        <div style="color:#a78bfa;font-weight:600;font-size:.9rem;margin-bottom:4px">Download</div>
+        <div style="color:#666;font-size:.8rem">Export full analysis as PDF</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  let selectedFile = null;
+
+  // Restore if already uploaded
+  const savedSummary = SS.str("summary");
+  const savedTopic   = SS.str("topic");
+  if(savedSummary){
+    showResults(savedSummary, SS.get("vision")||[], savedTopic);
+  }
+
+  function handleFile(e){ setFile(e.target.files[0]); }
+  function handleDrop(e){
+    e.preventDefault();
+    document.getElementById("dropZone").style.borderColor = "#2a3347";
+    const f = e.dataTransfer.files[0];
+    if(f && f.type==="application/pdf") setFile(f);
+  }
+  function setFile(f){
+    selectedFile = f;
+    document.getElementById("fileLabel").textContent = `Selected: ${f.name}`;
+    document.getElementById("uploadBtn").disabled = false;
+  }
+
+  async function uploadPaper(){
+    if(!selectedFile) return;
+    setBtn("uploadBtn", true, "Analyzing...");
+    document.getElementById("uploadStatus").innerHTML = "";
+    const fd = new FormData();
+    fd.append("file", selectedFile);
+    try{
+      const res  = await fetch("/upload", {method:"POST", body:fd});
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+
+      // Save to session
+      SS.set("summary", data.summary);
+      SS.set("vision",  data.vision);
+      SS.set("topic",   data.topic);
+
+      showResults(data.summary, data.vision, data.topic);
+      document.getElementById("uploadStatus").innerHTML = `<span class="badge badge-ok">✓ Done</span>`;
+      refreshNav();
+    } catch(e){
+      document.getElementById("uploadStatus").innerHTML = `<span class="badge badge-err">✗ ${e.message}</span>`;
+    }
+    setBtn("uploadBtn", false, "Analyze Paper");
+  }
+
+  function showResults(summary, vision, topic){
+    document.getElementById("topicBadge").textContent = topic;
+    document.getElementById("tabSum").innerHTML = md(summary);
+
+    const figEl = document.getElementById("tabFig");
+    if(vision && vision.length){
+      figEl.innerHTML = vision.map((v,i)=>`
+        <div style="padding:12px;border-bottom:1px solid #2a3347">
+          <div style="color:#f0a04b;font-size:.8rem;font-weight:600;margin-bottom:6px">Figure ${i+1}</div>
+          ${md(v)}
+        </div>`).join('');
+    } else {
+      figEl.innerHTML = "<p style='color:#555;padding:8px'>No figures found in this paper.</p>";
+    }
+
+    document.getElementById("summaryCard").classList.remove("hidden");
+    document.getElementById("nextCard").classList.remove("hidden");
+  }
+
+  function switchTab(t){
+    const isSum = t==="sum";
+    document.getElementById("tabSum").classList.toggle("hidden", !isSum);
+    document.getElementById("tabFig").classList.toggle("hidden", isSum);
+    document.getElementById("tabSumBtn").className = isSum ? "btn btn-ghost" : "btn";
+    document.getElementById("tabSumBtn").style = isSum ? "font-size:.8rem;padding:5px 14px" : "font-size:.8rem;padding:5px 14px;background:#252d3d;color:#888;border:1px solid #2a3347";
+    document.getElementById("tabFigBtn").className = !isSum ? "btn btn-ghost" : "btn";
+    document.getElementById("tabFigBtn").style = !isSum ? "font-size:.8rem;padding:5px 14px" : "font-size:.8rem;padding:5px 14px;background:#252d3d;color:#888;border:1px solid #2a3347";
+  }
+</script>
+{% endblock %}
