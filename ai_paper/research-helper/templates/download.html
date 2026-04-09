@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Download — Research AI{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:24px">
+  <h2 style="font-size:1.4rem;color:#a78bfa;margin-bottom:4px">📥 Download Edited Paper</h2>
+  <p style="color:#666;font-size:.88rem">Download your original paper with AI-rewritten sections applied in-place.</p>
+</div>
+
+<div id="noPaper" class="card hidden">
+  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a></p>
+</div>
+
+<div id="mainContent">
+  <div class="card">
+    <div class="card-title">📄 Original Paper with Edits</div>
+
+    <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:20px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="font-size:2.5rem">📄</div>
+        <div>
+          <div style="font-size:.95rem;font-weight:600;color:#e0e0e0;margin-bottom:4px">paper_edited.pdf</div>
+          <div style="font-size:.8rem;color:#666">Original paper with AI-rewritten sections applied in-place</div>
+          <div id="editsStatus" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="noEditsNote" class="hidden" style="background:#1a1200;border:1px solid #3a2800;border-radius:8px;padding:12px;margin-bottom:16px;font-size:.83rem;color:#f0a04b">
+      ⚠️ No rewritten sections found. Run <a href="/improve" style="color:#f0a04b">Improve</a> first to generate edits, then come back to download.
+    </div>
+
+    <div class="row">
+      <button class="btn btn-success" id="dlBtn" onclick="downloadPDF()" style="font-size:1rem;padding:12px 28px">
+        📥 Download PDF
+      </button>
+      <span id="dlStatus"></span>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const topic = SS.str("topic");
+  const edits = SS.get("edits") || [];
+
+  if (!topic) {
+    document.getElementById("noPaper").classList.remove("hidden");
+    document.getElementById("mainContent").classList.add("hidden");
+  } else {
+    const statusEl = document.getElementById("editsStatus");
+    if (edits.length > 0) {
+      statusEl.innerHTML = `<span class="badge badge-ok">${edits.length} section${edits.length > 1 ? "s" : ""} rewritten</span>`;
+    } else {
+      statusEl.innerHTML = `<span class="badge badge-err">No edits yet</span>`;
+      document.getElementById("noEditsNote").classList.remove("hidden");
+    }
+  }
+
+  async function downloadPDF() {
+    setBtn("dlBtn", true, "Building PDF...");
+    document.getElementById("dlStatus").innerHTML = "";
+    try {
+      const res = await fetch("/download-original", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ edits })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "PDF generation failed");
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url; a.download = "paper_edited.pdf"; a.click();
+      URL.revokeObjectURL(url);
+      document.getElementById("dlStatus").innerHTML = `<span class="badge badge-ok">✓ Downloaded</span>`;
+    } catch (e) {
+      document.getElementById("dlStatus").innerHTML = `<span class="badge badge-err">✗ ${e.message}</span>`;
+    }
+    setBtn("dlBtn", false, "📥 Download PDF");
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,11 @@
+flask
+python-dotenv
+groq
+pymupdf
+pillow
+sentence-transformers
+faiss-cpu
+numpy
+requests
+reportlab
+langgraph
