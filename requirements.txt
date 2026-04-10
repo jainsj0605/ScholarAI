@@ -9,3 +9,6 @@ requests
 reportlab
 langgraph
 streamlit
+torch
+torchvision
+transformers
