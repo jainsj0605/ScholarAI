@@ -536,7 +536,18 @@ def node_arxiv_search(state):
         if len(validated) >= 5: break
         if validate_relevance(state["summary"], p) >= 6:
             validated.append(p)
-    state["papers"] = validated or candidates[:3]
+    
+    # Ensure at least 4 papers if candidates exist
+    if len(validated) < 4 and candidates:
+        current_titles = {p["title"] for p in validated}
+        for p in candidates:
+            if p["title"] not in current_titles:
+                validated.append(p)
+                current_titles.add(p["title"])
+            if len(validated) >= 4:
+                break
+    
+    state["papers"] = validated[:4]
     return state
 
 def node_compare(state):
