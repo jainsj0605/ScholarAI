@@ -218,14 +218,18 @@ def search_arxiv(keywords):
         except:
             return []
     kws = keywords if isinstance(keywords, list) else [keywords]
+    # Tiered search strategy: 
+    # 1. All words in all fields (broadest)
+    # 2. Key words in title (specific)
+    # 3. Key words in abstract (technical)
     tier1 = " AND ".join([f'all:{quote_plus(kw)}' for kw in kws])
-    specific = sorted(kws, key=len, reverse=True)[:2]
-    tier2 = " AND ".join([f'abs:{quote_plus(kw)}' for kw in specific])
-    for q in [tier1, tier2]:
+    tier2 = " AND ".join([f'ti:{quote_plus(kw)}' for kw in kws[:2]])
+    tier3 = " AND ".join([f'abs:{quote_plus(kw)}' for kw in kws[:2]])
+    
+    for q in [tier2, tier3, tier1]: # Prioritize specific title/abs matches
         for sort in [True, False]:
             results = perform_search(q, sort)
-            if results:
-                return results
+            if results: return results
     return []
 
 def validate_relevance(summary, candidate):
@@ -521,7 +525,12 @@ def node_vision(state):
     return state
 
 def node_extract_topic(state):
-    prompt = f"Extract 3-4 specific research keyword from this summary. Return JSON list only: [\"kw1\", \"kw2\"].\nSummary: {state['summary']}"
+    prompt = f"""Extract 3-4 highly technical and specific research keywords from the paper summary below.
+    - Avoid general terms like "AI", "Methodology", or "Research".
+    - Focus on the core technical novelty or domain (e.g., "Latent Diffusion", "RAG optimization", "Graph Neural Networks").
+    - Return a JSON list ONLY: ["kw1", "kw2", "kw3"].
+    
+    Summary: {state['summary']}"""
     res = llm(prompt)
     try:
         state["topic"] = json.loads(re.search(r'\[.*\]', res, re.DOTALL).group())
@@ -533,21 +542,19 @@ def node_arxiv_search(state):
     candidates = search_arxiv(state["topic"])
     validated = []
     for p in candidates:
-        if len(validated) >= 5: break
-        if validate_relevance(state["summary"], p) >= 6:
+        if len(validated) >= 4: break
+        # Using a stricter relevance threshold (7/10) to ensure research quality
+        if validate_relevance(state["summary"], p) >= 7:
             validated.append(p)
     
-    # Ensure at least 4 papers if candidates exist
-    if len(validated) < 4 and candidates:
-        current_titles = {p["title"] for p in validated}
-        for p in candidates:
-            if p["title"] not in current_titles:
+    state["papers"] = validated
+    if not validated and candidates:
+        # Fallback to the top 2 candidates only if they are reasonably close (>=5)
+        for p in candidates[:2]:
+            if validate_relevance(state["summary"], p) >= 5:
                 validated.append(p)
-                current_titles.add(p["title"])
-            if len(validated) >= 4:
-                break
-    
-    state["papers"] = validated[:4]
+        state["papers"] = validated
+        
     return state
 
 def node_compare(state):
