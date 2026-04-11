@@ -119,7 +119,9 @@ def encode_image(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-def llm(prompt: str, model: str = TEXT_MODEL) -> str:
+def llm(prompt: str, model: str = None) -> str:
+    if model is None:
+        model = TEXT_MODEL
     retries = 2
     current_model = model
     for attempt in range(retries + 1):
@@ -600,7 +602,7 @@ Answer:"""
 # LANGGRAPH PIPELINES
 # =========================
 @st.cache_resource
-def build_graphs():
+def build_graphs(v="1.0.1"):
     g1 = StateGraph(PaperState)
     g1.add_node("summarize", node_summarize)
     g1.add_node("vision", node_vision)
@@ -631,7 +633,7 @@ def build_graphs():
 
     return g1.compile(), g2.compile(), g3.compile(), g4.compile()
 
-upload_graph, compare_graph, improve_graph, qa_graph = build_graphs()
+upload_graph, compare_graph, improve_graph, qa_graph = build_graphs(v="1.0.1")
 
 # =========================
 # STREAMLIT UI
