@@ -187,14 +187,19 @@ def retrieve(query, k=3):
     _, I = idx.search(np.array(emb), k)
     return [docs[i] for i in I[0] if i < len(docs)]
 
-def search_arxiv(keywords):
-    if not keywords: return []
-    def perform_search(q, sort_by_date=True):
+def search_arxiv(query):
+    # Legacy logic: Clean up query and use strict Boolean AND search
+    cleaned_query = re.sub(r'^(Topic|Keywords|Search):\s*', '', query, flags=re.IGNORECASE).strip()
+    cleaned_query = re.sub(r'^[“"‘\']*(.*?)[”"’\']*$', r'\1', cleaned_query).strip()
+    if not cleaned_query: return []
+
+    def perform_search(q_text, sort_by_date=True):
+        words = [w for w in re.split(r'\s+', q_text) if w]
+        if not words: return []
+        q = "+AND+".join([f"all:{quote_plus(w)}" for w in words])
         url = f"https://export.arxiv.org/api/query?search_query={q}&start=0&max_results=8"
-        if sort_by_date:
-            url += "&sortBy=submittedDate&sortOrder=descending"
-        else:
-            url += "&sortBy=relevance"
+        if sort_by_date: url += "&sortBy=submittedDate&sortOrder=descending"
+        else: url += "&sortBy=relevance"
         try:
             res = requests.get(url, timeout=25)
             papers = []
@@ -215,22 +220,20 @@ def search_arxiv(keywords):
                             "domain": get_domain_name(c.group(1)) if c else "Research"
                         })
             return papers
-        except:
-            return []
-    kws = keywords if isinstance(keywords, list) else [keywords]
-    # Tiered search strategy: 
-    # 1. All words in all fields (broadest)
-    # 2. Key words in title (specific)
-    # 3. Key words in abstract (technical)
-    tier1 = " AND ".join([f'all:{quote_plus(kw)}' for kw in kws])
-    tier2 = " AND ".join([f'ti:{quote_plus(kw)}' for kw in kws[:2]])
-    tier3 = " AND ".join([f'abs:{quote_plus(kw)}' for kw in kws[:2]])
-    
-    for q in [tier2, tier3, tier1]: # Prioritize specific title/abs matches
-        for sort in [True, False]:
-            results = perform_search(q, sort)
-            if results: return results
-    return []
+        except: return []
+
+    # Layered Fallback Strategy
+    # 1. Try strict search with date sorting
+    results = perform_search(cleaned_query, sort_by_date=True)
+    # 2. If no results, try broader fallback (fewer keywords) with date sorting
+    if not results:
+        words = cleaned_query.split()
+        if len(words) > 3:
+            results = perform_search(" ".join(words[:2]), sort_by_date=True)
+    # 3. If STILL no results, try relevance for better matches
+    if not results:
+        results = perform_search(cleaned_query, sort_by_date=False)
+    return results
 
 def validate_relevance(summary, candidate):
     prompt = f"Paper A: {summary[:800]}\nPaper B: {candidate['title']} - {candidate['summary'][:800]}\nScore 1-10 relevance. JSON only: {{\"score\": X}}"
@@ -525,36 +528,12 @@ def node_vision(state):
     return state
 
 def node_extract_topic(state):
-    prompt = f"""Extract 3-4 highly technical and specific research keywords from the paper summary below.
-    - Avoid general terms like "AI", "Methodology", or "Research".
-    - Focus on the core technical novelty or domain (e.g., "Latent Diffusion", "RAG optimization", "Graph Neural Networks").
-    - Return a JSON list ONLY: ["kw1", "kw2", "kw3"].
-    
-    Summary: {state['summary']}"""
-    res = llm(prompt)
-    try:
-        state["topic"] = json.loads(re.search(r'\[.*\]', res, re.DOTALL).group())
-    except:
-        state["topic"] = [res.strip()]
+    prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
+    state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
     return state
 
 def node_arxiv_search(state):
-    candidates = search_arxiv(state["topic"])
-    validated = []
-    for p in candidates:
-        if len(validated) >= 4: break
-        # Using a stricter relevance threshold (7/10) to ensure research quality
-        if validate_relevance(state["summary"], p) >= 7:
-            validated.append(p)
-    
-    state["papers"] = validated
-    if not validated and candidates:
-        # Fallback to the top 2 candidates only if they are reasonably close (>=5)
-        for p in candidates[:2]:
-            if validate_relevance(state["summary"], p) >= 5:
-                validated.append(p)
-        state["papers"] = validated
-        
+    state["papers"] = search_arxiv(state["topic"])
     return state
 
 def node_compare(state):
