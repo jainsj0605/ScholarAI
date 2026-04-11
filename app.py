@@ -188,18 +188,22 @@ def retrieve(query, k=3):
     return [docs[i] for i in I[0] if i < len(docs)]
 
 def search_arxiv(query):
-    # Legacy logic: Clean up query and use strict Boolean AND search
+    # Precision logic: prioritizing technical relevance over recency noise
     cleaned_query = re.sub(r'^(Topic|Keywords|Search):\s*', '', query, flags=re.IGNORECASE).strip()
     cleaned_query = re.sub(r'^[“"‘\']*(.*?)[”"’\']*$', r'\1', cleaned_query).strip()
     if not cleaned_query: return []
 
-    def perform_search(q_text, sort_by_date=True):
+    def perform_search(q_text, sort_by_relevance=True):
         words = [w for w in re.split(r'\s+', q_text) if w]
         if not words: return []
+        
+        # Build Boolean AND query
         q = "+AND+".join([f"all:{quote_plus(w)}" for w in words])
+        
         url = f"https://export.arxiv.org/api/query?search_query={q}&start=0&max_results=8"
-        if sort_by_date: url += "&sortBy=submittedDate&sortOrder=descending"
-        else: url += "&sortBy=relevance"
+        if sort_by_relevance: url += "&sortBy=relevance"
+        else: url += "&sortBy=submittedDate&sortOrder=descending"
+        
         try:
             res = requests.get(url, timeout=25)
             papers = []
@@ -210,29 +214,20 @@ def search_arxiv(query):
                     s = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
                     i = re.search(r'<id>(.*?)</id>', entry, re.DOTALL)
                     p = re.search(r'<published>(.*?)</published>', entry, re.DOTALL)
-                    c = re.search(r'<category term="(.*?)"', entry)
                     if t and s:
                         papers.append({
                             "title": re.sub(r'\s+', ' ', t.group(1)).strip(),
                             "summary": re.sub(r'\s+', ' ', s.group(1)).strip(),
                             "year": p.group(1)[:4] if p else "",
-                            "link": i.group(1).strip() if i else "",
-                            "domain": get_domain_name(c.group(1)) if c else "Research"
+                            "link": i.group(1).strip() if i else ""
                         })
             return papers
         except: return []
 
-    # Layered Fallback Strategy
-    # 1. Try strict search with date sorting
-    results = perform_search(cleaned_query, sort_by_date=True)
-    # 2. If no results, try broader fallback (fewer keywords) with date sorting
+    # Strategy: Relevance first for "right" papers, then date for latest
+    results = perform_search(cleaned_query, sort_by_relevance=True)
     if not results:
-        words = cleaned_query.split()
-        if len(words) > 3:
-            results = perform_search(" ".join(words[:2]), sort_by_date=True)
-    # 3. If STILL no results, try relevance for better matches
-    if not results:
-        results = perform_search(cleaned_query, sort_by_date=False)
+        results = perform_search(cleaned_query, sort_by_relevance=False)
     return results
 
 def validate_relevance(summary, candidate):
@@ -528,7 +523,11 @@ def node_vision(state):
     return state
 
 def node_extract_topic(state):
-    prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
+    prompt = f"""Extract the single most technical and unique research phrase (2-4 words) that defines the core methodology of this paper.
+    Return ONLY the phrase.
+    Example: "Retrieval-Augmented Generation", "Contrastive Learning", "Graph Neural Networks".
+    
+    Summary: {state['summary']}"""
     state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
     return state
 
