@@ -306,13 +306,20 @@ def node_arxiv_search(state):
 
 def node_compare(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1000]}" for p in state["papers"]])
-    prompt = f"""Compare original paper with recent research using markdown.
-### CRITICAL: You MUST complete the 'Quick Take-Away Table' fully. Do not stop mid-generation.
-Original: {state['summary'][:1500]}
-Recent: {combined}
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+Compare the original paper provided below with the list of recent research papers.
+Identify specific technical gaps, novelties, and overlapping methods.
+DO NOT echo these instructions or start with "CRITICAL:". 
+Start your response DIRECTLY with the Markdown header '## Strategic Comparison'.
+
+### ORIGINAL PAPER SUMMARY ###
+{state['summary'][:1500]}
+
+### RECENT ACADEMIC CONTEXT ###
+{combined if combined else "No specific recent papers found for deep comparison."}
 
 ## Strategic Comparison
-(Provide a deep analysis here)
+(Provide a deep analysis of research gaps and innovations here)
 
 ## Quick Take-Away Table
 | Aspect | This Paper | Recent Work | Innovation |
@@ -321,10 +328,16 @@ Recent: {combined}
     return state
 
 def node_improve(state):
-    prompt = f"""Identify sections that need improvement based on the comparative analysis.
-### CRITICAL: You MUST complete the 'Discussion & Limitations' table fully.
-Paper text: {state['text'][:6000]}
-Comparative analysis: {state['comparison']}
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+Identify exactly 3-5 weak sections that need improvement based on the comparative analysis.
+Use specific references to the Comparative Analysis.
+Start your response DIRECTLY with '## Improvement Strategy'.
+
+### PAPER TEXT DATA ###
+{state['text'][:6000]}
+
+### COMPARATIVE ANALYSIS CONTEXT ###
+{state['comparison']}
 
 ## Improvement Strategy
 ...
@@ -335,11 +348,17 @@ Comparative analysis: {state['comparison']}
     return state
 
 def node_rewrite(state):
-    prompt = f"""Rewrite specific weak sections identified in the analysis. 
-### CRITICAL: You MUST return a VALID JSON array. If you stop early, the app will fail.
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+Rewrite the weak sections identified in the analysis. 
+You MUST return a valid JSON array only. No preamble.
+Format: [{{"section":"Section Name","original":"EXACT original text snippet","rewritten":"improved text"}}]
+
+### FULL CONTEXT ###
 Paper: {state['text'][:8000]}
 Analysis: {state['improvements']}
-Output JSON array ONLY: [{{"section":"Section Name","original":"EXACT original text snippet","rewritten":"improved text"}}]"""
+
+### OUTPUT ###
+"""
     raw = llm(prompt)
     try:
         raw = re.sub(r'```(?:json)?', '', raw).strip()
