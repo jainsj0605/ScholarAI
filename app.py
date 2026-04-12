@@ -69,6 +69,7 @@ class PaperState(TypedDict):
     topic: List[str]
     papers: List[dict]
     comparison: str
+    comparison_table: str
     improvements: str
     edits: List[dict]
     query: str
@@ -320,32 +321,40 @@ def node_arxiv_search(state):
     state["papers"] = unique[:6]
     return state
 
-def node_compare(state):
+def node_compare_table(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Perform a HIGHLY GRANULAR TECHNICAL COMPARISON between the original paper and the recent research provided.
-Your analysis MUST be exhaustive. For each comparison point, explain the "Technical Delta" (what is mathematically or architecturally different).
+Generate a HIGHLY DETAILED QUANTITATIVE COMPARISON TABLE only.
+Compare the original paper with the recent context.
+Focus on backbone architectures, performance decimal scores, and datasets.
+Return ONLY a Markdown Table. Do not include any intro or outro text.
 
-Mandatory Comparison Focus:
-1. QUANTITATIVE BENCHMARKS: Compare specific decimal scores (S-measure, F-measure, etc.) if available in the text.
-2. ARCHITECTURAL SUPERIORITY: Why is this paper's backbone or decoder better/different than the competitors?
-3. DATASET DIVERSITY: Compare the scale and variety of testing sets used.
-4. INNOVATION UNIQUENESS: Is the novelty here just evolutionary, or a paradigm shift?
-
-Start your response DIRECTLY with the Markdown header '## Technical Deep Dive'.
-
-### ORIGINAL PAPER SUMMARY ###
-{state['summary'][:2000]}
-
-### RECENT ACADEMIC CONTEXT ###
-{combined if combined else "No specific recent papers found for deep comparison."}
-
-## Technical Deep Dive
-(Provide an exhaustive technical analysis comparing backbones, losses, and architectural novelties. Use multiple long-form paragraphs.)
+### CONTEXT ###
+Original: {state['summary'][:1500]}
+Recent: {combined}
 
 ## Quantitative Comparison Table
 | Technical Aspect | This Paper (Original) | Related Work (Competitors) | Quantitative Advantage/Delta |
 | :--- | :--- | :--- | :--- |"""
+    state["comparison_table"] = llm(prompt)
+    return state
+
+def node_compare_analysis(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+Perform an EXHAUSTIVE TECHNICAL DEEP DIVE analysis based on the comparison table and research context provided.
+Analyze specific architectural differences (Technical Delta) and methodological novelties.
+Use long-form paragraphs. Do not echo instructions. 
+Start directly with the header '## Technical Deep Dive'.
+
+### COMPARISON TABLE DATA ###
+{state['comparison_table']}
+
+### RECENT PAPERS CONTEXT ###
+{combined}
+
+## Technical Deep Dive
+(Deep technical analysis here)"""
     state["comparison"] = llm(prompt)
     return state
 
@@ -418,10 +427,12 @@ def build_graphs():
 
     g2 = StateGraph(PaperState)
     g2.add_node("arxiv_search", node_arxiv_search)
-    g2.add_node("compare", node_compare)
+    g2.add_node("compare_table", node_compare_table)
+    g2.add_node("compare_analysis", node_compare_analysis)
     g2.set_entry_point("arxiv_search")
-    g2.add_edge("arxiv_search", "compare")
-    g2.add_edge("compare", END)
+    g2.add_edge("arxiv_search", "compare_table")
+    g2.add_edge("compare_table", "compare_analysis")
+    g2.add_edge("compare_analysis", END)
 
     g3 = StateGraph(PaperState)
     g3.add_node("improve", node_improve)
@@ -467,7 +478,7 @@ st.title("🔬 ScholarAI: Research Paper Helper")
 st.caption("Upload a PDF → Get AI Summary, Q&A, Multi-Engine Comparison, and Improvements")
 
 # Initialize session state
-for key in ["summary", "vision", "topic", "papers", "comparison",
+for key in ["summary", "vision", "topic", "papers", "comparison", "comparison_table",
             "improvements", "edits", "text", "images", "chunks", "qa_history"]:
     if key not in st.session_state:
         st.session_state[key] = [] if key in ["vision", "topic", "papers", "edits",
@@ -569,6 +580,7 @@ with tab3:
                 }
                 result = compare_graph.invoke(init)
                 st.session_state.papers = result["papers"]
+                st.session_state.comparison_table = result["comparison_table"]
                 st.session_state.comparison = result["comparison"]
 
         if st.session_state.papers:
@@ -583,9 +595,14 @@ with tab3:
     {'<a href="' + p["link"] + '" target="_blank">View Source →</a>' if p.get("link") else ''}
 </div>""", unsafe_allow_html=True)
 
+        if st.session_state.comparison_table:
+            st.divider()
+            st.subheader("📊 Quantitative Comparison Table")
+            st.markdown(st.session_state.comparison_table)
+
         if st.session_state.comparison:
             st.divider()
-            st.subheader("📊 Comparative Analysis")
+            st.subheader("📊 Technical Deep Dive")
             st.markdown(st.session_state.comparison)
 
 # --- TAB 4: Improve ---
