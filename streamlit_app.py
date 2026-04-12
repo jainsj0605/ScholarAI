@@ -246,20 +246,32 @@ def search_arxiv(query):
 # LANGGRAPH NODES
 # =========================
 def node_summarize(state):
-    prompt = f"""Analyze this research paper and provide a structured summary using markdown:
-## TLDR
-One sentence summary.
-## Problem
-What problem does it solve?
-## Method
-What approach/method is used?
-## Results
-Key results and metrics.
-## Limitations
-Known limitations.
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+Provide a COMPREHENSIVE TECHNICAL ANALYSIS of this research paper.
+Avoid brief bullet points where possible; provide detailed analytical paragraphs.
+Include the following specific headers:
 
-Paper text:
-{state['text'][:4000]}"""
+## Executive Summary
+A detailed high-level overview of the work and its primary impact.
+
+## Problem Statement & Motivation
+What is the core research gap being addressed? Why is this problem significant?
+
+## Technical Architecture & Methodology
+A deep dive into the network architecture, backbones, special modules, and training strategies.
+
+## Key Theoretical Contributions
+What are the novel concepts or proofs introduced?
+
+## Experimental Results & Benchmarks
+Detailed results, including specific metrics (e.g., Accuracy, mIoU, F-measure) on named datasets.
+
+## Limitations & Future Work
+A critical analysis of the current constraints.
+
+### PAPER TEXT DATA ###
+{state['text'][:8000]}
+"""
     state["summary"] = llm(prompt)
     return state
 
@@ -312,13 +324,14 @@ def node_compare(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 Perform a HIGHLY GRANULAR TECHNICAL COMPARISON between the original paper and the recent research provided.
-Your goal is to identify precise technical differences in:
-1. ARCHITECTURE: Backbones (e.g., Swin, ResNet), Decoders, and Attention Modules.
-2. LOSS FUNCTIONS: Specific mathematical approaches (e.g., Dice, BCE, IoU-aware).
-3. BENCHMARKS: Performance on specific datasets (e.g., COD10K, NC4K, CAMO).
-4. METRICS: Comparative gains in S-measure ($S_m$), F-measure ($F_\beta$), or E-measure ($E_m$).
+Your analysis MUST be exhaustive. For each comparison point, explain the "Technical Delta" (what is mathematically or architecturally different).
 
-Be critical, technical, and pedantic. Avoid generic praise.
+Mandatory Comparison Focus:
+1. QUANTITATIVE BENCHMARKS: Compare specific decimal scores (S-measure, F-measure, etc.) if available in the text.
+2. ARCHITECTURAL SUPERIORITY: Why is this paper's backbone or decoder better/different than the competitors?
+3. DATASET DIVERSITY: Compare the scale and variety of testing sets used.
+4. INNOVATION UNIQUENESS: Is the novelty here just evolutionary, or a paradigm shift?
+
 Start your response DIRECTLY with the Markdown header '## Technical Deep Dive'.
 
 ### ORIGINAL PAPER SUMMARY ###
@@ -328,10 +341,10 @@ Start your response DIRECTLY with the Markdown header '## Technical Deep Dive'.
 {combined if combined else "No specific recent papers found for deep comparison."}
 
 ## Technical Deep Dive
-(Provide an exhaustive technical analysis comparing backbones, losses, and architectural novelties)
+(Provide an exhaustive technical analysis comparing backbones, losses, and architectural novelties. Use multiple long-form paragraphs.)
 
 ## Quantitative Comparison Table
-| Technical Aspect | This Paper (IFBONet/Original) | Related Work (Competitors) | Research Gap/Advantage |
+| Technical Aspect | This Paper (Original) | Related Work (Competitors) | Quantitative Advantage/Delta |
 | :--- | :--- | :--- | :--- |"""
     state["comparison"] = llm(prompt)
     return state
