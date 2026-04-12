@@ -147,43 +147,135 @@ def retrieve(query, k=3):
     _, I = idx.search(np.array(emb), k)
     return [docs[i] for i in I[0] if i < len(docs)]
 
-def search_arxiv(keywords):
-    if not keywords: return []
-    def perform_search(q, sort_by_date=True):
-        url = f"https://export.arxiv.org/api/query?search_query={q}&start=0&max_results=8"
+def search_semantic_scholar(query):
+    """Primary Semantic Search Engine with Rate-Limit Awareness"""
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=5&fields=title,abstract,year,url,venue"
+    try:
+        res = requests.get(url, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            papers = []
+            for item in data.get("data", []):
+                papers.append({
+                    "title": item.get("title", "Untitled"),
+                    "summary": item.get("abstract") or "No abstract available.",
+                    "year": str(item.get("year", "")),
+                    "link": item.get("url", ""),
+                    "venue": item.get("venue") or "Semantic Scholar"
+                })
+            return papers
+    except: pass
+    return []
+
+def search_openalex(query):
+    """Global Academic Catalog - High reliability for engineering topics"""
+    url = f"https://api.openalex.org/works?search={requests.utils.quote(query)}&limit=5"
+    try:
+        res = requests.get(url, timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            papers = []
+            for item in data.get("results", []):
+                papers.append({
+                    "title": item.get("display_name", "Untitled"),
+                    "summary": (item.get("abstract_inverted_index") or "No abstract.").strip()[:500],
+                    "year": str(item.get("publication_year", "")),
+                    "link": item.get("doi") or f"https://openalex.org/{item.get('id').split('/')[-1]}",
+                    "venue": (item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex")
+                })
+            return papers
+    except: pass
+    return []
+
+def search_crossref(query):
+    """Engineering Meta-Registry (IEEE, Elsevier, Wiley, etc.)"""
+    url = f"https://api.crossref.org/works?query={requests.utils.quote(query)}&rows=5"
+    try:
+        res = requests.get(url, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            papers = []
+            for item in data.get("message", {}).get("items", []):
+                papers.append({
+                    "title": item.get("title", ["Untitled"])[0],
+                    "summary": "Engineering research record found in CrossRef. No abstract available via metadata API.",
+                    "year": str(item.get("published-print", {}).get("date-parts", [[""]])[0][0]),
+                    "link": item.get("URL", ""),
+                    "venue": item.get("container-title", ["CrossRef"])[0]
+                })
+            return papers
+    except: pass
+    return []
+
+def search_arxiv(query):
+    # Basic cleaning - handle "Topic:", smart quotes, and labels
+    cleaned_query = re.sub(r'^(Topic|Keywords|Search):\s*', '', query, flags=re.IGNORECASE).strip()
+    cleaned_query = re.sub(r'^[“"‘\']*(.*?)[”"’\']*$', r'\1', cleaned_query).strip()
+    
+    if not cleaned_query: return []
+
+    def perform_search(q_text, sort_by_date=True):
+        words = [w for w in re.split(r'\s+', q_text) if w]
+        if not words: return []
+        q = "+AND+".join([f"all:{quote_plus(w)}" for w in words])
+        
+        url = f"https://export.arxiv.org/api/query?search_query={q}&start=0&max_results=5"
         if sort_by_date: url += "&sortBy=submittedDate&sortOrder=descending"
         else: url += "&sortBy=relevance"
+            
         try:
             res = requests.get(url, timeout=25)
             papers = []
             if res.status_code == 200:
                 entries = re.findall(r'<entry>(.*?)</entry>', res.text, re.DOTALL)
                 for entry in entries:
-                    t = re.search(r'<title>(.*?)</title>', entry, re.DOTALL)
-                    s = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
-                    i = re.search(r'<id>(.*?)</id>', entry, re.DOTALL)
-                    p = re.search(r'<published>(.*?)</published>', entry, re.DOTALL)
-                    c = re.search(r'<category term="(.*?)"', entry)
-                    if t and s:
+                    t_m = re.search(r'<title>(.*?)</title>', entry, re.DOTALL)
+                    s_m = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
+                    id_m = re.search(r'<id>(.*?)</id>', entry, re.DOTALL)
+                    p_m = re.search(r'<published>(.*?)</published>', entry, re.DOTALL)
+                    if t_m and s_m:
                         papers.append({
-                            "title": re.sub(r'\s+', ' ', t.group(1)).strip(),
-                            "summary": re.sub(r'\s+', ' ', s.group(1)).strip(),
-                            "year": p.group(1)[:4] if p else "",
-                            "link": i.group(1).strip() if i else "",
-                            "domain": get_domain_name(c.group(1)) if c else "Research"
+                            "title": re.sub(r'\s+', ' ', t_m.group(1)).strip(),
+                            "summary": re.sub(r'\s+', ' ', s_m.group(1)).strip(),
+                            "year": p_m.group(1)[:4] if p_m else "",
+                            "link": id_m.group(1).strip() if id_m else ""
                         })
             return papers
         except: return []
-    # Tiered search
-    tier1 = " AND ".join([f'all:{quote_plus(kw)}' for kw in keywords])
-    tier2 = " AND ".join([f'(ti:{quote_plus(kw)} OR abs:{quote_plus(kw)})' for kw in keywords])
-    specific = sorted(keywords, key=len, reverse=True)[:2]
-    tier3 = " AND ".join([f'abs:{quote_plus(kw)}' for kw in specific])
-    for q in [tier1, tier2, tier3]:
-        for sort in [True, False]:
-            results = perform_search(q, sort)
-            if results: return results
-    return []
+
+    words = [w for w in re.split(r'\s+', cleaned_query) if w]
+    
+    # Tier 1: Iterative AND (Date Sorted)
+    for count in [len(words), 3, 2]:
+        if count > len(words): continue
+        results = perform_search(" ".join(words[:count]), sort_by_date=True)
+        if results: return results
+        
+    # Tier 2: Iterative AND (Relevance Sorted)
+    for count in [len(words), 2]:
+        if count > len(words): continue
+        results = perform_search(" ".join(words[:count]), sort_by_date=False)
+        if results: return results
+        
+    # Tier 3: Broad OR Fallback (Relevance)
+    try:
+        q_or = "+OR+".join([f"all:{quote_plus(w)}" for w in words[:2]])
+        url = f"https://export.arxiv.org/api/query?search_query={q_or}&max_results=5&sortBy=relevance"
+        res = requests.get(url, timeout=20)
+        papers = []
+        if res.status_code == 200:
+            entries = re.findall(r'<entry>(.*?)</entry>', res.text, re.DOTALL)
+            for entry in entries:
+                t_m = re.search(r'<title>(.*?)</title>', entry, re.DOTALL)
+                s_m = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
+                if t_m and s_m:
+                    papers.append({
+                        "title": re.sub(r'\s+', ' ', t_m.group(1)).strip(),
+                        "summary": re.sub(r'\s+', ' ', s_m.group(1)).strip(),
+                        "year": "", "link": ""
+                    })
+        return papers
+    except: return []
 
 def validate_relevance(summary, candidate):
     prompt = f"Paper A: {summary[:800]}\nPaper B: {candidate['title']} - {candidate['summary'][:800]}\nScore 1-10 on relevance. JSON only: {{\"score\": X}}"
@@ -233,19 +325,29 @@ def node_vision(state):
     return state
 
 def node_extract_topic(state):
-    prompt = f"Analyze summary and extract 3-4 specific keywords. JSON list only: [\"kw1\", \"kw2\"].\nSummary: {state['summary']}"
-    res = llm(prompt)
-    try: state["topic"] = json.loads(re.search(r'\[.*\]', res, re.DOTALL).group())
-    except: state["topic"] = [res.strip()]
+    prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
+    state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
     return state
 
 def node_arxiv_search(state):
-    candidates = search_arxiv(state["topic"])
-    validated = []
-    for p in candidates:
-        if len(validated) >= 5: break
-        if validate_relevance(state["summary"], p) >= 6: validated.append(p)
-    state["papers"] = validated or candidates[:3]
+    query = state["topic"]
+    
+    # Run all discovery engines
+    arxiv_p = search_arxiv(query)
+    crossref_p = search_crossref(query)
+    openalex_p = search_openalex(query)
+    semantic_p = search_semantic_scholar(query)
+    
+    all_p = crossref_p + openalex_p + semantic_p + arxiv_p
+    unique = []
+    seen = set()
+    for p in all_p:
+        slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
+        if slug and slug not in seen:
+            unique.append(p)
+            seen.add(slug)
+            
+    state["papers"] = unique[:6]
     return state
 
 def node_compare(state):
