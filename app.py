@@ -83,38 +83,16 @@ def encode_image(path):
         return base64.b64encode(f.read()).decode("utf-8")
 
 def llm(prompt: str, model: str = TEXT_MODEL) -> str:
-    retries = 2
-    current_model = model
-    for attempt in range(retries + 1):
-        try:
-            res = client.chat.completions.create(
-                model=current_model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=4000,
-                temperature=0.5
-            )
-            return res.choices[0].message.content
-        except Exception as e:
-            err_msg = str(e)
-            if "429" in err_msg or "rate_limit" in err_msg.lower():
-                if attempt < retries:
-                    wait_time = 4
-                    match = re.search(r'Please try again in ([\d\.]+)s', err_msg)
-                    if match: wait_time = float(match.group(1)) + 0.5
-                    time.sleep(wait_time)
-                    continue
-                elif current_model == TEXT_MODEL:
-                    current_model = FALLBACK_MODEL
-                    time.sleep(1)
-                    try:
-                        res = client.chat.completions.create(
-                            model=current_model,
-                            messages=[{"role": "user", "content": prompt}]
-                        )
-                        return res.choices[0].message.content
-                    except Exception as e2:
-                        return f"Error (Fallback): {e2}"
-            return f"Error: {e}"
+    try:
+        res = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4000,
+            temperature=0.5
+        )
+        return res.choices[0].message.content
+    except Exception as e:
+        return f"Error: {e}"
 
 def parse_pdf(file_path):
     doc = fitz.open(file_path)
