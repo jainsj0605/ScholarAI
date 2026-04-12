@@ -248,27 +248,27 @@ def search_arxiv(query):
 # =========================
 def node_summarize(state):
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Provide a COMPREHENSIVE TECHNICAL ANALYSIS of this research paper.
-Avoid brief bullet points where possible; provide detailed analytical paragraphs.
-Include the following specific headers:
+ROLE: Technical Reviewer
+CONSTRAINTS: Be concise, dense, and technical. Avoid filler. Use bullets only.
+Provide a COMPREHENSIVE TECHNICAL ANALYSIS.
 
 ## Executive Summary
-A detailed high-level overview of the work and its primary impact.
+* (High-level impact)
 
-## Problem Statement & Motivation
-What is the core research gap being addressed? Why is this problem significant?
+## Problem & Motivation
+* (Core research gap and significance)
 
-## Technical Architecture & Methodology
-A deep dive into the network architecture, backbones, special modules, and training strategies.
+## Architecture & Methodology
+* (Backbones, modules, training strategies)
 
-## Key Theoretical Contributions
-What are the novel concepts or proofs introduced?
+## Theoretical Contributions
+* (Novel concepts/proofs)
 
-## Experimental Results & Benchmarks
-Detailed results, including specific metrics (e.g., Accuracy, mIoU, F-measure) on named datasets.
+## Results & Benchmarks
+* (Specific metrics: Accuracy, mIoU, F1 on named datasets)
 
-## Limitations & Future Work
-A critical analysis of the current constraints.
+## Limitations
+* (Constraints and edge cases)
 
 ### PAPER TEXT DATA ###
 {state['text'][:8000]}
@@ -324,17 +324,16 @@ def node_arxiv_search(state):
 def node_compare_table(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Generate a HIGHLY DETAILED QUANTITATIVE COMPARISON TABLE only.
-Compare the original paper with the recent context.
-Focus on backbone architectures, performance decimal scores, and datasets.
-Return ONLY a Markdown Table. Do not include any intro or outro text.
+ROLE: Technical Reviewer
+CONSTRAINTS: Compact table (max 5 rows). Bullet points only for internal cell data. 
+ENSURE metrics: Architecture, Dataset, Accuracy/mIoU/F1, Parameters.
 
 ### CONTEXT ###
 Original: {state['summary'][:1500]}
 Recent: {combined}
 
-## Quantitative Comparison Table
-| Technical Aspect | This Paper (Original) | Related Work (Competitors) | Quantitative Advantage/Delta |
+## 1. Quantitative Comparison Table
+| Architecture | Dataset | Accuracy/mIoU/F1 | Parameters |
 | :--- | :--- | :--- | :--- |"""
     state["comparison_table"] = llm(prompt)
     return state
@@ -342,16 +341,10 @@ Recent: {combined}
 def node_compare_analysis(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Perform a HIGH-DENSITY TECHNICAL DEEP DIVE based on the comparison table.
-STRICT LIMIT: Provide exactly 4 distinct technical sections only.
-STYLE: Use high-information density bullets. Avoid long-form paragraphs.
-CRITICAL: Do not start a section if you cannot finish it. Complete all sentences.
-
-Mandatory Sections:
-1. ARCHITECTURAL DELTA: Differences in Backbones, Attention, and Decoders.
-2. OPTIMIZATION & LOSS: Mathematical variations in training objectives.
-3. BENCHMARK PARITY: Direct comparison of scores on specific datasets.
-4. INNOVATION UNIQUENESS: The specific niche this paper fills relative to others.
+ROLE: Technical Reviewer
+CONSTRAINTS: 100 words max per section. Bullet points ONLY. Focus ONLY on deltas.
+TOKEN CONTROL: Prioritize Table -> 2.1 Architectural Delta -> 2.4 Innovation. 
+TERMINATION: If near token limit, STOP after completing a section. DO NOT start a section unless it can be completed. Ensure last sentence is complete.
 
 ### COMPARISON TABLE DATA ###
 {state['comparison_table']}
@@ -359,8 +352,23 @@ Mandatory Sections:
 ### RECENT PAPERS CONTEXT ###
 {combined}
 
-## Technical Deep Dive
-(Provide exactly 4 sections of dense technical comparison bullets)"""
+## 2. Technical Deep Dive (STRICT LIMITS)
+
+### 2.1 Architectural Delta
+* (Compare backbone, modules, attention, decoders)
+
+### 2.2 Optimization & Loss
+* (Compare loss functions, training strategies)
+
+### 2.3 Benchmark Parity
+* (Compare performance on shared datasets)
+
+### 2.4 Innovation Uniqueness
+* (State what is novel vs incremental)
+
+---
+FAILURE PREVENTION: Ensure every sentence is complete. If truncated, end with "[Output truncated safely]".
+"""
     state["comparison"] = llm(prompt)
     return state
 
