@@ -20,8 +20,8 @@ from langgraph.graph import StateGraph, END
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
 client        = Groq(api_key=GROQ_API_KEY)
 TEXT_MODEL    = "openai/gpt-oss-120b"
-FALLBACK_MODEL = "llama-3.1-70b-versatile"
-FAST_MODEL    = "llama-3.1-8b-instant"
+FALLBACK_MODEL = "llama-3.3-70b-versatile"
+FAST_MODEL    = "llama-3.3-8b-versatile"
 VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 # Cache the heavy model so it loads only once
