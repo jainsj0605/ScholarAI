@@ -1,12 +1,12 @@
 import os, json, re, io, base64, requests
 from urllib.parse import quote_plus
-
 from dotenv import load_dotenv
 load_dotenv()
 
 import fitz
 import faiss
 import numpy as np
+from PIL import Image
 from typing import TypedDict, List, Optional
 
 from flask import Flask, request, jsonify, send_file, render_template
@@ -49,9 +49,23 @@ class PaperState(TypedDict):
 # =========================
 # UTILS
 # =========================
-def encode_image(path):
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+def encode_image(path, max_bytes=3_500_000):
+    """Encode image to base64, resizing if needed to stay under Groq's 4MB limit."""
+    img = Image.open(path).convert("RGB")
+    buf = io.BytesIO()
+    quality = 85
+    img.save(buf, format="JPEG", quality=quality)
+    # Downscale until under limit
+    while buf.tell() > max_bytes and quality > 30:
+        buf = io.BytesIO()
+        quality -= 15
+        img.save(buf, format="JPEG", quality=quality)
+    if buf.tell() > max_bytes:
+        # Halve dimensions
+        img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 def llm(prompt: str) -> str:
     try:
@@ -95,28 +109,81 @@ def retrieve(query, k=3):
     _, I = index.search(np.array(emb), k)
     return [documents[i] for i in I[0] if i < len(documents)]
 
+def search_semantic_scholar(query):
+    """Primary Semantic Search Engine with Rate-Limit Awareness"""
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=5&fields=title,abstract,year,url,venue"
+    try:
+        res = requests.get(url, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            papers = []
+            for item in data.get("data", []):
+                papers.append({
+                    "title": item.get("title", "Untitled"),
+                    "summary": item.get("abstract") or "No abstract available.",
+                    "year": str(item.get("year", "")),
+                    "link": item.get("url", ""),
+                    "venue": item.get("venue") or "Semantic Scholar"
+                })
+            return papers
+    except: pass
+    return []
+
+def search_openalex(query):
+    """Global Academic Catalog - High reliability for engineering topics"""
+    url = f"https://api.openalex.org/works?search={requests.utils.quote(query)}&limit=5"
+    try:
+        res = requests.get(url, timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            papers = []
+            for item in data.get("results", []):
+                papers.append({
+                    "title": item.get("display_name", "Untitled"),
+                    "summary": (item.get("abstract_inverted_index") or "No abstract.").strip()[:500],
+                    "year": str(item.get("publication_year", "")),
+                    "link": item.get("doi") or f"https://openalex.org/{item.get('id').split('/')[-1]}",
+                    "venue": (item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex")
+                })
+            return papers
+    except: pass
+    return []
+
+def search_crossref(query):
+    """Engineering Meta-Registry (IEEE, Elsevier, Wiley, etc.)"""
+    url = f"https://api.crossref.org/works?query={requests.utils.quote(query)}&rows=5"
+    try:
+        res = requests.get(url, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            papers = []
+            for item in data.get("message", {}).get("items", []):
+                papers.append({
+                    "title": item.get("title", ["Untitled"])[0],
+                    "summary": "Engineering research record found in CrossRef. No abstract available via metadata API.",
+                    "year": str(item.get("published-print", {}).get("date-parts", [[""]])[0][0]),
+                    "link": item.get("URL", ""),
+                    "venue": item.get("container-title", ["CrossRef"])[0]
+                })
+            return papers
+    except: pass
+    return []
+
 def search_arxiv(query):
     # Basic cleaning - handle "Topic:", smart quotes, and labels
     cleaned_query = re.sub(r'^(Topic|Keywords|Search):\s*', '', query, flags=re.IGNORECASE).strip()
-    # Handle both standard and "smart" quotes
     cleaned_query = re.sub(r'^[“"‘\']*(.*?)[”"’\']*$', r'\1', cleaned_query).strip()
     
-    if not cleaned_query:
-        return []
+    if not cleaned_query: return []
 
     def perform_search(q_text, sort_by_date=True):
-        # Format as strict boolean: all:term1+AND+all:term2
         words = [w for w in re.split(r'\s+', q_text) if w]
         if not words: return []
-        
-        # Build strict Boolean query
         q = "+AND+".join([f"all:{quote_plus(w)}" for w in words])
         
         url = f"https://export.arxiv.org/api/query?search_query={q}&start=0&max_results=5"
-        if sort_by_date:
-            url += "&sortBy=submittedDate&sortOrder=descending"
-        else:
-            url += "&sortBy=relevance"
+        if sort_by_date: url += "&sortBy=submittedDate&sortOrder=descending"
+        else: url += "&sortBy=relevance"
             
         try:
             res = requests.get(url, timeout=25)
@@ -124,43 +191,54 @@ def search_arxiv(query):
             if res.status_code == 200:
                 entries = re.findall(r'<entry>(.*?)</entry>', res.text, re.DOTALL)
                 for entry in entries:
-                    title_match = re.search(r'<title>(.*?)</title>', entry, re.DOTALL)
-                    summary_match = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
-                    id_match = re.search(r'<id>(.*?)</id>', entry, re.DOTALL)
-                    published_match = re.search(r'<published>(.*?)</published>', entry, re.DOTALL)
-                    
-                    if title_match and summary_match:
-                        title = re.sub(r'\s+', ' ', title_match.group(1)).strip()
-                        summary = re.sub(r'\s+', ' ', summary_match.group(1)).strip()
-                        year = published_match.group(1)[:4] if published_match else ""
-                        link = id_match.group(1).strip() if id_match else ""
-                        papers.append({"title": title, "summary": summary, "year": year, "link": link})
+                    t_m = re.search(r'<title>(.*?)</title>', entry, re.DOTALL)
+                    s_m = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
+                    id_m = re.search(r'<id>(.*?)</id>', entry, re.DOTALL)
+                    p_m = re.search(r'<published>(.*?)</published>', entry, re.DOTALL)
+                    if t_m and s_m:
+                        papers.append({
+                            "title": re.sub(r'\s+', ' ', t_m.group(1)).strip(),
+                            "summary": re.sub(r'\s+', ' ', s_m.group(1)).strip(),
+                            "year": p_m.group(1)[:4] if p_m else "",
+                            "link": id_m.group(1).strip() if id_m else ""
+                        })
             return papers
-        except Exception as e:
-            raise e
+        except: return []
 
+    words = [w for w in re.split(r'\s+', cleaned_query) if w]
+    
+    # Tier 1: Iterative AND (Date Sorted) - Newest technical matches
+    for count in [len(words), 3, 2]:
+        if count > len(words): continue
+        results = perform_search(" ".join(words[:count]), sort_by_date=True)
+        if results: return results
+        
+    # Tier 2: Iterative AND (Relevance Sorted) - Most relevant classical matches
+    for count in [len(words), 2]:
+        if count > len(words): continue
+        results = perform_search(" ".join(words[:count]), sort_by_date=False)
+        if results: return results
+        
+    # Tier 3: Broad OR Fallback (Relevance) - Final safety net
     try:
-        # 1. Try strict search with date sorting
-        results = perform_search(cleaned_query, sort_by_date=True)
-        
-        # 2. If 0 results, try broader fallback (fewer keywords) with date sorting
-        if not results:
-            words = cleaned_query.split()
-            if len(words) > 3:
-                fallback_query = " ".join(words[:3])
-                results = perform_search(fallback_query, sort_by_date=True)
-        
-        # 3. If STILL 0 results, drop date sorting and try relevance for better matches
-        if not results:
-            results = perform_search(cleaned_query, sort_by_date=False)
-                
-        return results
-    except Exception as e:
-        err_msg = str(e)
-        if "timeout" in err_msg.lower():
-            err_msg = "ArXiv is responding slowly (timeout). Please try again in 5 seconds."
-        print(f"arXiv search error: {e}")
-        return [{"title": "Search failed", "summary": err_msg, "year": ""}]
+        q_or = "+OR+".join([f"all:{quote_plus(w)}" for w in words[:2]])
+        url = f"https://export.arxiv.org/api/query?search_query={q_or}&max_results=5&sortBy=relevance"
+        res = requests.get(url, timeout=20)
+        papers = []
+        if res.status_code == 200:
+            entries = re.findall(r'<entry>(.*?)</entry>', res.text, re.DOTALL)
+            for entry in entries:
+                t_m = re.search(r'<title>(.*?)</title>', entry, re.DOTALL)
+                s_m = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
+                if t_m and s_m:
+                    papers.append({
+                        "title": re.sub(r'\s+', ' ', t_m.group(1)).strip(),
+                        "summary": re.sub(r'\s+', ' ', s_m.group(1)).strip(),
+                        "year": "", "link": ""
+                    })
+        return papers
+    except:
+        return [{"title": "Search failed", "summary": "No relevant technical papers found.", "year": ""}]
 
 # =========================
 # LANGGRAPH NODES
@@ -197,7 +275,7 @@ def node_vision(state: PaperState) -> PaperState:
                 model=VISION_MODEL,
                 messages=[{"role": "user", "content": [
                     {"type": "text", "text": "Analyze this research paper figure using markdown:\n- **Type**: What kind of figure?\n- **Key Insights**: What does it show?\n- **Importance**: Why is it significant?"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
                 ]}]
             )
             results.append(res.choices[0].message.content)
@@ -212,30 +290,53 @@ def node_extract_topic(state: PaperState) -> PaperState:
     return state
 
 def node_arxiv_search(state: PaperState) -> PaperState:
-    state["papers"] = search_arxiv(state["topic"])
+    query = state["topic"]
+    
+    # Run all discovery engines in parallel
+    arxiv_p = search_arxiv(query)
+    crossref_p = search_crossref(query)
+    openalex_p = search_openalex(query)
+    semantic_p = search_semantic_scholar(query)
+    
+    all_p = crossref_p + openalex_p + semantic_p + arxiv_p
+    unique = []
+    seen = set()
+    for p in all_p:
+        slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
+        if slug and slug not in seen:
+            unique.append(p)
+            seen.add(slug)
+            
+    state["papers"] = unique[:6]
     return state
 
 def node_compare(state: PaperState) -> PaperState:
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
-    prompt = f"""You are a research analyst. Compare the original paper with recent research using markdown.
+    # Hallucination Guard: Ensure we have source papers
+    papers_data = [p for p in state["papers"] if p.get("title") != "No relevant research found"]
+    
+    if not papers_data:
+        state["comparison"] = "## Comparative Analysis unavailable\nNo relevant source papers were found to perform a factual comparison. Please try adjusting your search terms."
+        return state
 
-Original Paper Summary:
+    combined = "\n\n".join([f"[{p.get('year','?')}] {p['title']} ({p.get('venue','Research')}): {p['summary']}" for p in papers_data])
+    
+    prompt = f"""You are a research analyst. Compare THIS paper with the PROVIDED recent work.
+
+### CRITICAL RULES:
+- ONLY discussed the papers listed under 'Recent Related Research' below.
+- Do NOT use internal knowledge to mention papers not listed here.
+- If the list is empty, state that no comparison is possible.
+
+ORIGINAL PAPER:
 {state['summary']}
 
-Recent Related Research:
+RECENT RELATED RESEARCH:
 {combined}
 
-## Key Differences
-How does the original differ from recent work?
-
-## Improvements in Recent Work
-What have newer papers improved upon?
-
-## Missing Ideas
-What concepts from recent research are absent in the original?
-
-## Strengths of Original
-What does the original do well?"""
+## Strategic Comparison Table
+| Year | Paper (Venue) | Innovation | Key Difference |
+| :--- | :--- | :--- | :--- |
+(Fill with at least 3 papers from the provided RESEARCH list)"""
     state["comparison"] = llm(prompt)
     return state
 
@@ -661,6 +762,13 @@ def page_download():
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
+        # Clean up previous session files
+        for f in os.listdir("."):
+            if f.startswith("temp_") and f.endswith(".png"):
+                os.remove(f)
+        if os.path.exists("paper.pdf"):
+            os.remove("paper.pdf")
+
         file = request.files["file"]
         path = "paper.pdf"
         file.save(path)
@@ -675,7 +783,7 @@ def upload():
         }
         result = upload_graph.invoke(init)
         return jsonify({"summary": result["summary"], "vision": result["vision"],
-                        "topic": result["topic"]})
+                        "topic": result["topic"], "short_title": result.get("short_title", "research_report")})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -757,13 +865,73 @@ def generate_pdf():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-import os as _os
-import sys as _sys
+@app.route("/download-original", methods=["POST"])
+def download_original():
+    """Return only the original PDF with AI-rewritten sections applied in-place."""
+    try:
+        edits = request.json.get("edits", [])
+
+        if not os.path.exists("paper.pdf"):
+            return jsonify({"error": "Original PDF not found."}), 400
+
+        orig = fitz.open("paper.pdf")
+
+        for edit in edits:
+            original_snip = edit.get("original", "").strip()
+            rewritten     = edit.get("rewritten", "").strip()
+            if not original_snip or not rewritten:
+                continue
+
+            found = False
+            for key_len in [120, 80, 50, 30]:
+                search_key = original_snip[:key_len].strip()
+                if not search_key:
+                    continue
+                for page in orig:
+                    hits = page.search_for(search_key)
+                    if not hits:
+                        continue
+                    rect = hits[0]
+                    line_count = max(3, len(original_snip) // 70)
+                    rep_rect = fitz.Rect(
+                        rect.x0 - 1,
+                        rect.y0 - 2,
+                        page.rect.width - MARGIN + 10,
+                        rect.y0 + line_count * 13 + 10
+                    ) & page.rect
+                    page.add_redact_annot(rep_rect, fill=(1, 1, 1))
+                    page.apply_redactions()
+                    fs = 10
+                    x, y = rep_rect.x0 + 1, rep_rect.y0 + fs + 1
+                    max_chars = max(1, int(rep_rect.width / (fs * 0.52)))
+                    words = rewritten.split()
+                    line = ""
+                    for w in words:
+                        test = (line + " " + w).strip()
+                        if len(test) > max_chars:
+                            if y + fs < rep_rect.y1:
+                                page.insert_text((x, y), line, fontsize=fs,
+                                                 fontname="helv", color=(0, 0, 0))
+                                y += fs + 3
+                            line = w
+                        else:
+                            line = test
+                    if line and y + fs < rep_rect.y1:
+                        page.insert_text((x, y), line, fontsize=fs,
+                                         fontname="helv", color=(0, 0, 0))
+                    found = True
+                    break
+                if found:
+                    break
+
+        buf = io.BytesIO()
+        orig.save(buf, garbage=4, deflate=True)
+        orig.close()
+        buf.seek(0)
+        return send_file(buf, mimetype="application/pdf",
+                         as_attachment=True, download_name="paper_edited.pdf")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    # Don't start Flask if running under Streamlit
-    if "streamlit" in _sys.modules:
-        pass
-    else:
-        port = int(_os.environ.get("PORT", 5000))
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    app.run(debug=True)

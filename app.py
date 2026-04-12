@@ -1,15 +1,15 @@
-import os, json, re, io, base64, requests
+import os, json, re, io, base64, requests, time, tempfile
 from urllib.parse import quote_plus
+
 from dotenv import load_dotenv
 load_dotenv()
 
+import streamlit as st
 import fitz
 import faiss
 import numpy as np
-from PIL import Image
 from typing import TypedDict, List, Optional
 
-from flask import Flask, request, jsonify, send_file, render_template
 from groq import Groq
 from sentence_transformers import SentenceTransformer
 from langgraph.graph import StateGraph, END
@@ -17,19 +17,48 @@ from langgraph.graph import StateGraph, END
 # =========================
 # CONFIG
 # =========================
-GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
+GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
 client        = Groq(api_key=GROQ_API_KEY)
 TEXT_MODEL    = "openai/gpt-oss-120b"
+FALLBACK_MODEL = "llama-3.1-70b-versatile"
+FAST_MODEL    = "llama-3.1-8b-instant"
 VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-app          = Flask(__name__)
-embed_model  = SentenceTransformer("all-MiniLM-L6-v2")
+# Cache the heavy model so it loads only once
+@st.cache_resource
+def load_embed_model():
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+embed_model = load_embed_model()
 dimension    = 384
-index        = faiss.IndexFlatL2(dimension)
-documents: List[str] = []
+
+# Session-level FAISS index
+if "faiss_index" not in st.session_state:
+    st.session_state.faiss_index = faiss.IndexFlatL2(dimension)
+    st.session_state.documents = []
+
+# ArXiv category mapping
+ARXIV_CATEGORIES = {
+    "cs.AI": "Artificial Intelligence", "cs.CV": "Computer Vision",
+    "cs.LG": "Machine Learning", "cs.CL": "Computation and Language",
+    "cs.NE": "Neural/Evolutionary Computing", "cs.RO": "Robotics",
+    "stat.ML": "Machine Learning", "cs.CR": "Cryptography",
+    "cs.IR": "Information Retrieval", "cs.SE": "Software Engineering",
+    "cs.DC": "Distributed Computing", "cs.HC": "Human-Computer Interaction",
+}
+
+def get_domain_name(cat_code):
+    if not cat_code: return "Research"
+    if cat_code in ARXIV_CATEGORIES: return ARXIV_CATEGORIES[cat_code]
+    prefix = cat_code.split('.')[0]
+    if prefix == "cs": return "Computer Science"
+    if prefix == "stat": return "Statistics"
+    if "physics" in cat_code or cat_code.startswith("hep-"): return "Physics"
+    if "math" in cat_code: return "Mathematics"
+    return cat_code.upper()
 
 # =========================
-# LANGGRAPH STATE
+# STATE
 # =========================
 class PaperState(TypedDict):
     text: str
@@ -37,7 +66,7 @@ class PaperState(TypedDict):
     chunks: List[str]
     summary: str
     vision: List[str]
-    topic: str
+    topic: List[str]
     papers: List[dict]
     comparison: str
     improvements: str
@@ -49,43 +78,51 @@ class PaperState(TypedDict):
 # =========================
 # UTILS
 # =========================
-def encode_image(path, max_bytes=3_500_000):
-    """Encode image to base64, resizing if needed to stay under Groq's 4MB limit."""
-    img = Image.open(path).convert("RGB")
-    buf = io.BytesIO()
-    quality = 85
-    img.save(buf, format="JPEG", quality=quality)
-    # Downscale until under limit
-    while buf.tell() > max_bytes and quality > 30:
-        buf = io.BytesIO()
-        quality -= 15
-        img.save(buf, format="JPEG", quality=quality)
-    if buf.tell() > max_bytes:
-        # Halve dimensions
-        img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=quality)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+def encode_image(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
-def llm(prompt: str) -> str:
-    try:
-        res = client.chat.completions.create(
-            model=TEXT_MODEL,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return res.choices[0].message.content
-    except Exception as e:
-        return f"Error: {e}"
+def llm(prompt: str, model: str = TEXT_MODEL) -> str:
+    retries = 2
+    current_model = model
+    for attempt in range(retries + 1):
+        try:
+            res = client.chat.completions.create(
+                model=current_model,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return res.choices[0].message.content
+        except Exception as e:
+            err_msg = str(e)
+            if "429" in err_msg or "rate_limit" in err_msg.lower():
+                if attempt < retries:
+                    wait_time = 4
+                    match = re.search(r'Please try again in ([\d\.]+)s', err_msg)
+                    if match: wait_time = float(match.group(1)) + 0.5
+                    time.sleep(wait_time)
+                    continue
+                elif current_model == TEXT_MODEL:
+                    current_model = FALLBACK_MODEL
+                    time.sleep(1)
+                    try:
+                        res = client.chat.completions.create(
+                            model=current_model,
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                        return res.choices[0].message.content
+                    except Exception as e2:
+                        return f"Error (Fallback): {e2}"
+            return f"Error: {e}"
 
 def parse_pdf(file_path):
     doc = fitz.open(file_path)
     text, images = "", []
-    for i, page in enumerate(doc):
+    for page in doc:
         text += page.get_text()
         for img in page.get_images(full=True):
             xref = img[0]
             base_image = doc.extract_image(xref)
-            img_path = f"temp_{xref}.png"
+            img_path = os.path.join(tempfile.gettempdir(), f"temp_{xref}.png")
             with open(img_path, "wb") as f:
                 f.write(base_image["image"])
             images.append(img_path)
@@ -95,19 +132,20 @@ def chunk_text(text, size=500):
     return [text[i:i+size] for i in range(0, len(text), size)]
 
 def store_embeddings(chunks):
-    global documents, index
-    index = faiss.IndexFlatL2(dimension)
-    documents = []
+    st.session_state.faiss_index = faiss.IndexFlatL2(dimension)
+    st.session_state.documents = []
     embs = embed_model.encode(chunks)
-    index.add(np.array(embs))
-    documents.extend(chunks)
+    st.session_state.faiss_index.add(np.array(embs))
+    st.session_state.documents.extend(chunks)
 
 def retrieve(query, k=3):
-    if not documents: return []
+    docs = st.session_state.documents
+    idx = st.session_state.faiss_index
+    if not docs: return []
     emb = embed_model.encode([query])
-    k = min(k, len(documents))
-    _, I = index.search(np.array(emb), k)
-    return [documents[i] for i in I[0] if i < len(documents)]
+    k = min(k, len(docs))
+    _, I = idx.search(np.array(emb), k)
+    return [docs[i] for i in I[0] if i < len(docs)]
 
 def search_semantic_scholar(query):
     """Primary Semantic Search Engine with Rate-Limit Awareness"""
@@ -207,19 +245,19 @@ def search_arxiv(query):
 
     words = [w for w in re.split(r'\s+', cleaned_query) if w]
     
-    # Tier 1: Iterative AND (Date Sorted) - Newest technical matches
+    # Tier 1: Iterative AND (Date Sorted)
     for count in [len(words), 3, 2]:
         if count > len(words): continue
         results = perform_search(" ".join(words[:count]), sort_by_date=True)
         if results: return results
         
-    # Tier 2: Iterative AND (Relevance Sorted) - Most relevant classical matches
+    # Tier 2: Iterative AND (Relevance Sorted)
     for count in [len(words), 2]:
         if count > len(words): continue
         results = perform_search(" ".join(words[:count]), sort_by_date=False)
         if results: return results
         
-    # Tier 3: Broad OR Fallback (Relevance) - Final safety net
+    # Tier 3: Broad OR Fallback (Relevance)
     try:
         q_or = "+OR+".join([f"all:{quote_plus(w)}" for w in words[:2]])
         url = f"https://export.arxiv.org/api/query?search_query={q_or}&max_results=5&sortBy=relevance"
@@ -237,27 +275,29 @@ def search_arxiv(query):
                         "year": "", "link": ""
                     })
         return papers
-    except:
-        return [{"title": "Search failed", "summary": "No relevant technical papers found.", "year": ""}]
+    except: return []
+
+def validate_relevance(summary, candidate):
+    prompt = f"Paper A: {summary[:800]}\nPaper B: {candidate['title']} - {candidate['summary'][:800]}\nScore 1-10 on relevance. JSON only: {{\"score\": X}}"
+    res = llm(prompt, model=FAST_MODEL)
+    try:
+        data = json.loads(re.search(r'\{.*\}', res, re.DOTALL).group())
+        return int(data.get("score", 0))
+    except: return 0
 
 # =========================
 # LANGGRAPH NODES
 # =========================
-def node_summarize(state: PaperState) -> PaperState:
+def node_summarize(state):
     prompt = f"""Analyze this research paper and provide a structured summary using markdown:
-
 ## TLDR
 One sentence summary.
-
 ## Problem
 What problem does it solve?
-
 ## Method
 What approach/method is used?
-
 ## Results
 Key results and metrics.
-
 ## Limitations
 Known limitations.
 
@@ -266,7 +306,7 @@ Paper text:
     state["summary"] = llm(prompt)
     return state
 
-def node_vision(state: PaperState) -> PaperState:
+def node_vision(state):
     results = []
     for img_path in state["images"][:3]:
         try:
@@ -274,8 +314,8 @@ def node_vision(state: PaperState) -> PaperState:
             res = client.chat.completions.create(
                 model=VISION_MODEL,
                 messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Analyze this research paper figure using markdown:\n- **Type**: What kind of figure?\n- **Key Insights**: What does it show?\n- **Importance**: Why is it significant?"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                    {"type": "text", "text": "Analyze this research paper figure:\n- **Type**: What kind?\n- **Key Insights**: What does it show?\n- **Importance**: Why significant?"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
                 ]}]
             )
             results.append(res.choices[0].message.content)
@@ -284,15 +324,15 @@ def node_vision(state: PaperState) -> PaperState:
     state["vision"] = results
     return state
 
-def node_extract_topic(state: PaperState) -> PaperState:
+def node_extract_topic(state):
     prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
     state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
     return state
 
-def node_arxiv_search(state: PaperState) -> PaperState:
+def node_arxiv_search(state):
     query = state["topic"]
     
-    # Run all discovery engines in parallel
+    # Run all discovery engines
     arxiv_p = search_arxiv(query)
     crossref_p = search_crossref(query)
     openalex_p = search_openalex(query)
@@ -310,109 +350,43 @@ def node_arxiv_search(state: PaperState) -> PaperState:
     state["papers"] = unique[:6]
     return state
 
-def node_compare(state: PaperState) -> PaperState:
-    # Hallucination Guard: Ensure we have source papers
-    papers_data = [p for p in state["papers"] if p.get("title") != "No relevant research found"]
-    
-    if not papers_data:
-        state["comparison"] = "## Comparative Analysis unavailable\nNo relevant source papers were found to perform a factual comparison. Please try adjusting your search terms."
-        return state
-
-    combined = "\n\n".join([f"[{p.get('year','?')}] {p['title']} ({p.get('venue','Research')}): {p['summary']}" for p in papers_data])
-    
-    prompt = f"""You are a research analyst. Compare THIS paper with the PROVIDED recent work.
-
-### CRITICAL RULES:
-- ONLY discussed the papers listed under 'Recent Related Research' below.
-- Do NOT use internal knowledge to mention papers not listed here.
-- If the list is empty, state that no comparison is possible.
-
-ORIGINAL PAPER:
-{state['summary']}
-
-RECENT RELATED RESEARCH:
-{combined}
-
-## Strategic Comparison Table
-| Year | Paper (Venue) | Innovation | Key Difference |
-| :--- | :--- | :--- | :--- |
-(Fill with at least 3 papers from the provided RESEARCH list)"""
+def node_compare(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1000]}" for p in state["papers"]])
+    prompt = f"""Compare original paper with recent research using markdown.
+Original: {state['summary'][:1500]}
+Recent: {combined}"""
     state["comparison"] = llm(prompt)
     return state
 
-def node_improve(state: PaperState) -> PaperState:
-    """Identify weak sections and explain what needs improvement."""
-    full_text = state["text"]
-    prompt = f"""You are an expert research advisor. Read this paper and identify sections that need improvement.
-
-Paper text:
-{full_text[:6000]}
-
-Comparative analysis with recent work:
-{state['comparison']}
-
-For each section that needs improvement, explain specifically what is weak and what should be changed.
-Use markdown with section headings like ## Abstract, ## Introduction, ## Methodology, ## Results, ## Conclusion."""
+def node_improve(state):
+    prompt = f"""Identify sections that need improvement.
+Paper text: {state['text'][:6000]}
+Comparative analysis: {state['comparison']}
+Use markdown with section headings."""
     state["improvements"] = llm(prompt)
     return state
 
-def node_rewrite_sections(state: PaperState) -> PaperState:
-    """Rewrite each weak section. Return structured edits with original and rewritten text."""
-    full_text = state["text"]
-
-    prompt = f"""You are rewriting weak sections of a research paper to improve quality.
-
-Full paper text:
-{full_text[:8000]}
-
-Improvement analysis:
-{state['improvements']}
-
-Your task: For each section that needs improvement, provide the rewritten version.
-
-Output a JSON array ONLY (no other text, no markdown fences):
-[
-  {{
-    "section": "Abstract",
-    "original": "copy the FIRST 150 characters of that section EXACTLY as they appear in the paper text above",
-    "rewritten": "the complete improved text for this entire section"
-  }}
-]
-
-CRITICAL rules:
-- "original" must be copied CHARACTER FOR CHARACTER from the paper text (it is used to find and replace the text)
-- Keep "original" short (100-150 chars) — just enough to uniquely identify the location
-- "rewritten" should be the full improved section text
-- Only include sections whose text you can find verbatim in the paper"""
-
+def node_rewrite(state):
+    prompt = f"""Rewrite weak sections. Paper: {state['text'][:8000]}
+Analysis: {state['improvements']}
+Output JSON array: [{{"section":"X","original":"first 150 chars","rewritten":"improved text"}}]"""
     raw = llm(prompt)
-
-    edits = []
     try:
-        # Strip markdown code fences if present
         raw = re.sub(r'```(?:json)?', '', raw).strip()
-        match = re.search(r'\[.*\]', raw, re.DOTALL)
-        if match:
-            edits = json.loads(match.group())
-    except Exception:
-        edits = []
-
-    state["edits"] = edits
+        m = re.search(r'\[.*\]', raw, re.DOTALL)
+        state["edits"] = json.loads(m.group()) if m else []
+    except: state["edits"] = []
     return state
 
-def node_qa(state: PaperState) -> PaperState:
+def node_qa(state):
     chunks = retrieve(state["query"])
     if not chunks:
-        state["answer"] = "No document loaded. Please upload a paper first."
+        state["answer"] = "No document loaded."
         return state
     context = "\n".join(chunks)
-    prompt = f"""You are a research assistant. Answer based on the paper context using markdown.
-
-Context:
-{context}
-
+    prompt = f"""Answer based on paper context using markdown.
+Context: {context}
 Question: {state['query']}
-
 Answer:"""
     state["answer"] = llm(prompt)
     return state
@@ -420,518 +394,223 @@ Answer:"""
 # =========================
 # LANGGRAPH PIPELINES
 # =========================
-def build_upload_graph():
-    g = StateGraph(PaperState)
-    g.add_node("summarize", node_summarize)
-    g.add_node("vision", node_vision)
-    g.add_node("extract_topic", node_extract_topic)
-    g.set_entry_point("summarize")
-    g.add_edge("summarize", "vision")
-    g.add_edge("vision", "extract_topic")
-    g.add_edge("extract_topic", END)
-    return g.compile()
+@st.cache_resource
+def build_graphs():
+    g1 = StateGraph(PaperState)
+    g1.add_node("summarize", node_summarize)
+    g1.add_node("vision", node_vision)
+    g1.add_node("extract_topic", node_extract_topic)
+    g1.set_entry_point("summarize")
+    g1.add_edge("summarize", "vision")
+    g1.add_edge("vision", "extract_topic")
+    g1.add_edge("extract_topic", END)
 
-def build_compare_graph():
-    g = StateGraph(PaperState)
-    g.add_node("arxiv_search", node_arxiv_search)
-    g.add_node("compare", node_compare)
-    g.set_entry_point("arxiv_search")
-    g.add_edge("arxiv_search", "compare")
-    g.add_edge("compare", END)
-    return g.compile()
+    g2 = StateGraph(PaperState)
+    g2.add_node("arxiv_search", node_arxiv_search)
+    g2.add_node("compare", node_compare)
+    g2.set_entry_point("arxiv_search")
+    g2.add_edge("arxiv_search", "compare")
+    g2.add_edge("compare", END)
 
-def build_improve_graph():
-    g = StateGraph(PaperState)
-    g.add_node("improve", node_improve)
-    g.add_node("rewrite_sections", node_rewrite_sections)
-    g.set_entry_point("improve")
-    g.add_edge("improve", "rewrite_sections")
-    g.add_edge("rewrite_sections", END)
-    return g.compile()
+    g3 = StateGraph(PaperState)
+    g3.add_node("improve", node_improve)
+    g3.add_node("rewrite", node_rewrite)
+    g3.set_entry_point("improve")
+    g3.add_edge("improve", "rewrite")
+    g3.add_edge("rewrite", END)
 
-def build_qa_graph():
-    g = StateGraph(PaperState)
-    g.add_node("qa", node_qa)
-    g.set_entry_point("qa")
-    g.add_edge("qa", END)
-    return g.compile()
+    g4 = StateGraph(PaperState)
+    g4.add_node("qa", node_qa)
+    g4.set_entry_point("qa")
+    g4.add_edge("qa", END)
 
-upload_graph  = build_upload_graph()
-compare_graph = build_compare_graph()
-improve_graph = build_improve_graph()
-qa_graph      = build_qa_graph()
+    return g1.compile(), g2.compile(), g3.compile(), g4.compile()
+
+upload_graph, compare_graph, improve_graph, qa_graph = build_graphs()
 
 # =========================
-# PDF BUILDER
+# STREAMLIT UI
 # =========================
-PAGE_W, PAGE_H = 595, 842
-MARGIN = 55
-TW = PAGE_W - 2 * MARGIN   # text width
+st.set_page_config(page_title="ScholarAI", page_icon="🔬", layout="wide")
 
-def _strip_md(text):
-    text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
-    text = re.sub(r'\*(.*?)\*', r'\1', text)
-    text = re.sub(r'`(.*?)`', r'\1', text)
-    return text.strip()
+# Custom CSS for dark theme
+st.markdown("""
+<style>
+    .stApp { background-color: #0f1117; }
+    .paper-card {
+        background: #1a1f2e; border: 1px solid #2a3347; border-radius: 12px;
+        padding: 20px; margin-bottom: 16px;
+    }
+    .domain-badge {
+        background: #2a3a1e; color: #4caf82; padding: 2px 10px;
+        border-radius: 20px; font-size: 0.75rem; display: inline-block;
+    }
+    .year-badge {
+        background: #1e2a3a; color: #7c9ef8; padding: 2px 10px;
+        border-radius: 20px; font-size: 0.75rem; display: inline-block;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-class PageWriter:
-    """Helper that writes text to fitz pages with auto page-break."""
-    def __init__(self, doc):
-        self.doc = doc
-        self.page = None
-        self.y = 0
-        self._new_page()
+st.title("🔬 ScholarAI: Research Paper Helper")
+st.caption("Upload a PDF → Get AI Summary, Q&A, ArXiv Comparison, and Improvements")
 
-    def _new_page(self):
-        self.page = self.doc.new_page(width=PAGE_W, height=PAGE_H)
-        self.y = MARGIN + 10
+# Initialize session state
+for key in ["summary", "vision", "topic", "papers", "comparison",
+            "improvements", "edits", "text", "images", "chunks", "qa_history"]:
+    if key not in st.session_state:
+        st.session_state[key] = [] if key in ["vision", "topic", "papers", "edits",
+                                                "images", "chunks", "qa_history"] else ""
 
-    def _ensure_space(self, needed=20):
-        if self.y + needed > PAGE_H - MARGIN:
-            self._new_page()
+# --- SIDEBAR: Upload ---
+with st.sidebar:
+    st.header("📄 Upload Paper")
+    uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
 
-    def write_line(self, text, fontsize=10, bold=False, color=(0,0,0), indent=0):
-        self._ensure_space(fontsize + 6)
-        fn = "hebo" if bold else "helv"
-        self.page.insert_text((MARGIN + indent, self.y), text,
-                               fontsize=fontsize, fontname=fn, color=color)
-        self.y += fontsize + 5
+    if uploaded_file and st.button("🚀 Analyze Paper", type="primary", use_container_width=True):
+        with st.spinner("Parsing PDF & running AI analysis..."):
+            # Save uploaded file temporarily
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            tmp.write(uploaded_file.read())
+            tmp.close()
 
-    def write_wrapped(self, text, fontsize=10, bold=False,
-                      color=(0.1,0.1,0.1), indent=0, line_h=15):
-        fn = "hebo" if bold else "helv"
-        cpl = max(1, int((TW - indent) / (fontsize * 0.52)))
-        words = text.split()
-        line = ""
-        for w in words:
-            test = (line + " " + w).strip()
-            if len(test) > cpl:
-                self._ensure_space(line_h)
-                self.page.insert_text((MARGIN + indent, self.y), line,
-                                       fontsize=fontsize, fontname=fn, color=color)
-                self.y += line_h
-                line = w
-            else:
-                line = test
-        if line:
-            self._ensure_space(line_h)
-            self.page.insert_text((MARGIN + indent, self.y), line,
-                                   fontsize=fontsize, fontname=fn, color=color)
-            self.y += line_h
+            text, images = parse_pdf(tmp.name)
+            chunks = chunk_text(text)
+            store_embeddings(chunks)
 
-    def write_divider(self, color=(0.7,0.7,0.8)):
-        self._ensure_space(10)
-        self.page.draw_line((MARGIN, self.y), (PAGE_W - MARGIN, self.y),
-                             color=color, width=0.5)
-        self.y += 8
+            init = {
+                "text": text, "images": images, "chunks": chunks,
+                "summary": "", "vision": [], "topic": [],
+                "papers": [], "comparison": "", "improvements": "",
+                "edits": [], "query": "", "answer": "", "error": None
+            }
+            result = upload_graph.invoke(init)
 
-    def write_section_heading(self, text, color=(0.2,0.3,0.75)):
-        self.y += 8
-        self._ensure_space(30)
-        self.write_line(text, fontsize=12, bold=True, color=color)
-        self.write_divider()
+            st.session_state.text = text
+            st.session_state.images = images
+            st.session_state.chunks = chunks
+            st.session_state.summary = result["summary"]
+            st.session_state.vision = result["vision"]
+            st.session_state.topic = result["topic"]
+            st.session_state.pdf_path = tmp.name
 
-    def write_markdown_block(self, md_text, fontsize=10):
-        """Render markdown text block with basic formatting."""
-        for raw in md_text.split('\n'):
-            raw = raw.rstrip()
-            if not raw:
-                self.y += 5
-                continue
-            # Heading
-            if re.match(r'^#{1,4} ', raw):
-                text = re.sub(r'^#{1,4} ', '', raw)
-                self.write_line(_strip_md(text), fontsize=fontsize+1,
-                                bold=True, color=(0.15,0.25,0.65))
-                self.y += 2
-            # Bullet
-            elif re.match(r'^[\-\*\+] ', raw.strip()):
-                text = "•  " + _strip_md(raw.strip()[2:])
-                self.write_wrapped(text, fontsize=fontsize,
-                                   color=(0.1,0.1,0.1), indent=8)
-            # Numbered list
-            elif re.match(r'^\d+\. ', raw.strip()):
-                self.write_wrapped(_strip_md(raw.strip()), fontsize=fontsize,
-                                   color=(0.1,0.1,0.1), indent=8)
-            else:
-                self.write_wrapped(_strip_md(raw), fontsize=fontsize,
-                                   color=(0.15,0.15,0.15))
+        st.success("✅ Analysis complete!")
 
-    def cover_page(self, title, subtitle, topic):
-        """Write a styled cover/divider page."""
-        self._new_page()
-        # Top accent bar
-        self.page.draw_rect(fitz.Rect(0, 0, PAGE_W, 6), color=(0.2,0.3,0.75), fill=(0.2,0.3,0.75))
-        self.y = PAGE_H // 3
-        self.write_line(title, fontsize=20, bold=True,
-                        color=(0.2,0.3,0.75), indent=(TW - len(title)*11)//2)
-        self.y += 6
-        self.write_divider(color=(0.2,0.3,0.75))
-        self.write_wrapped(subtitle, fontsize=11, color=(0.4,0.4,0.4))
-        if topic:
-            self.y += 8
-            self.write_wrapped(f"Topic: {topic}", fontsize=10, color=(0.5,0.5,0.5))
-        self.write_line("Generated by openai/gpt-oss-120b via Groq + LangGraph",
-                        fontsize=8, color=(0.6,0.6,0.6))
-        # Bottom bar
-        self.page.draw_rect(fitz.Rect(0, PAGE_H-6, PAGE_W, PAGE_H),
-                             color=(0.2,0.3,0.75), fill=(0.2,0.3,0.75))
+    if st.session_state.topic:
+        topic_str = ", ".join(st.session_state.topic) if isinstance(st.session_state.topic, list) else st.session_state.topic
+        st.info(f"**Topic:** {topic_str}")
 
+# --- MAIN TABS ---
+tab1, tab2, tab3, tab4 = st.tabs(["📋 Summary", "💬 Q&A", "🔍 Compare", "✏️ Improve"])
 
-def build_analysis_pdf(original_pdf_path, summary, vision, comparison,
-                       improvements, edits, papers, topic, qa_text=""):
-    """
-    Build the final PDF:
-      - Original paper pages (with in-place text replacements applied)
-      - Page: Summary
-      - Page: Q&A placeholder
-      - Page: Comparative Study
-      - Page: Improvements & Rewrites
-    """
-    # ---- Apply text replacements to original PDF ----
-    orig = fitz.open(original_pdf_path)
-    applied_edits = []
-
-    for edit in edits:
-        original_snip = edit.get("original", "").strip()
-        rewritten     = edit.get("rewritten", "").strip()
-        section       = edit.get("section", "")
-        if not original_snip or not rewritten:
-            continue
-
-        found = False
-        # Try progressively shorter search keys
-        for key_len in [120, 80, 50, 30]:
-            search_key = original_snip[:key_len].strip()
-            if not search_key:
-                continue
-            for page in orig:
-                hits = page.search_for(search_key)
-                if not hits:
-                    continue
-                rect = hits[0]
-
-                # Estimate how many lines the original text spans
-                line_count = max(3, len(original_snip) // 70)
-                # Build replacement rect: full width of text column, enough height
-                rep_rect = fitz.Rect(
-                    rect.x0 - 1,
-                    rect.y0 - 2,
-                    page.rect.width - MARGIN + 10,
-                    rect.y0 + line_count * 13 + 10
-                ) & page.rect
-
-                # White-out original text
-                page.add_redact_annot(rep_rect, fill=(1, 1, 1))
-                page.apply_redactions()
-
-                # Re-insert rewritten text word-wrapped into same rect
-                fs = 10
-                x, y = rep_rect.x0 + 1, rep_rect.y0 + fs + 1
-                max_chars = max(1, int(rep_rect.width / (fs * 0.52)))
-                words = rewritten.split()
-                line = ""
-                for w in words:
-                    test = (line + " " + w).strip()
-                    if len(test) > max_chars:
-                        if y + fs < rep_rect.y1:
-                            page.insert_text((x, y), line, fontsize=fs,
-                                             fontname="helv", color=(0,0,0))
-                            y += fs + 3
-                        line = w
-                    else:
-                        line = test
-                if line and y + fs < rep_rect.y1:
-                    page.insert_text((x, y), line, fontsize=fs,
-                                     fontname="helv", color=(0,0,0))
-
-                applied_edits.append({"section": section, "rewritten": rewritten})
-                found = True
-                break
-            if found:
-                break
-
-    # ---- Build analysis appendix ----
-    analysis = fitz.open()
-    pw = PageWriter(analysis)
-
-    # --- PAGE 1: Summary ---
-    pw.cover_page("SECTION 1 — PAPER SUMMARY", "AI-generated structured summary of the uploaded paper", topic)
-    pw._new_page()
-    pw.write_section_heading("Paper Summary")
-    pw.write_markdown_block(summary)
-
-    if vision:
-        pw.write_section_heading("Figure Analysis")
-        for i, v in enumerate(vision):
-            pw.write_line(f"Figure {i+1}", fontsize=10, bold=True, color=(0.8,0.5,0.1))
-            pw.write_markdown_block(v)
-            pw.y += 6
-
-    # --- PAGE 2: Q&A ---
-    pw.cover_page("SECTION 2 — Q&A", "Questions and answers from the interactive session", topic)
-    pw._new_page()
-    pw.write_section_heading("Q&A Session")
-    if qa_text:
-        for block in qa_text.split("---"):
-            block = block.strip()
-            if not block:
-                continue
-            lines = block.split("\n\n", 1)
-            q_line = lines[0].replace("Q: ", "").strip() if lines else ""
-            a_text = lines[1].replace("A: ", "").strip() if len(lines) > 1 else ""
-            pw.write_line(f"Q: {q_line}", fontsize=10, bold=True, color=(0.9, 0.6, 0.1))
-            pw.y += 2
-            pw.write_markdown_block(a_text)
-            pw.y += 8
+# --- TAB 1: Summary ---
+with tab1:
+    if st.session_state.summary:
+        st.markdown(st.session_state.summary)
+        if st.session_state.vision:
+            st.divider()
+            st.subheader("🖼️ Figure Analysis")
+            for i, v in enumerate(st.session_state.vision):
+                with st.expander(f"Figure {i+1}", expanded=(i == 0)):
+                    st.markdown(v)
     else:
-        pw.write_wrapped("No questions were asked during this session.", fontsize=10, color=(0.4,0.4,0.4))
+        st.info("👈 Upload a PDF in the sidebar to get started.")
 
-    # --- PAGE 3: Comparative Study ---
-    pw.cover_page("SECTION 3 — COMPARATIVE STUDY", "Comparison with recent arXiv research on the same topic", topic)
-    pw._new_page()
-    pw.write_section_heading("Related Papers Found on arXiv")
-    for p in papers:
-        pw.write_line(f"[{p['year']}] {p['title']}", fontsize=9, bold=True, color=(0.2,0.3,0.7))
-        pw.write_wrapped(p['summary'][:300], fontsize=9, color=(0.4,0.4,0.4))
-        pw.y += 4
-
-    pw.write_section_heading("Comparative Analysis")
-    pw.write_markdown_block(comparison)
-
-    # --- PAGE 4: Improvements & Rewrites ---
-    pw.cover_page("SECTION 4 — IMPROVEMENTS & REWRITES",
-                  "AI-identified weak sections and their rewritten versions", topic)
-    pw._new_page()
-    pw.write_section_heading("Improvement Analysis")
-    pw.write_markdown_block(improvements)
-
-    if applied_edits:
-        pw.write_section_heading("Rewritten Sections (applied to paper)")
-        for ed in applied_edits:
-            pw.write_line(f"Section: {ed['section']}", fontsize=10, bold=True, color=(0.1,0.5,0.3))
-            pw.write_markdown_block(ed['rewritten'])
-            pw.y += 8
+# --- TAB 2: Q&A ---
+with tab2:
+    if not st.session_state.text:
+        st.info("Upload a paper first to ask questions.")
     else:
-        pw.write_wrapped(
-            "Note: Automatic in-place replacement could not locate the exact text snippets "
-            "in the PDF (this can happen with scanned or complex-layout PDFs). "
-            "The rewritten sections are shown below for manual reference.",
-            fontsize=10, color=(0.7,0.4,0.1))
-        pw.y += 8
-        for ed in edits:
-            if ed.get("rewritten"):
-                pw.write_line(f"Section: {ed.get('section','')}", fontsize=10,
-                              bold=True, color=(0.1,0.5,0.3))
-                pw.write_markdown_block(ed["rewritten"])
-                pw.y += 8
+        query = st.chat_input("Ask anything about the paper...")
+        # Display history
+        for item in st.session_state.qa_history:
+            with st.chat_message("user"):
+                st.write(item["q"])
+            with st.chat_message("assistant"):
+                st.markdown(item["a"])
 
-    # ---- Merge original (edited) + analysis ----
-    orig.insert_pdf(analysis)
-    buf = io.BytesIO()
-    orig.save(buf, garbage=4, deflate=True)
-    orig.close()
-    analysis.close()
-    buf.seek(0)
-    return buf
+        if query:
+            with st.chat_message("user"):
+                st.write(query)
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    init = {
+                        "text": "", "images": [], "chunks": [],
+                        "summary": "", "vision": [], "topic": [],
+                        "papers": [], "comparison": "", "improvements": "",
+                        "edits": [], "query": query, "answer": "", "error": None
+                    }
+                    result = qa_graph.invoke(init)
+                    st.markdown(result["answer"])
+                    st.session_state.qa_history.append({"q": query, "a": result["answer"]})
 
-# =========================
-# ROUTES
-# =========================
-@app.route("/")
-def home():
-    return render_template("upload.html", page="upload")
+# --- TAB 3: Compare ---
+with tab3:
+    if not st.session_state.summary:
+        st.info("Upload a paper first.")
+    else:
+        if st.button("🔍 Run Comparative Study", type="primary"):
+            with st.spinner("Searching ArXiv & validating relevance... (this may take 30-60s)"):
+                init = {
+                    "text": "", "images": [], "chunks": [],
+                    "summary": st.session_state.summary, "vision": [],
+                    "topic": st.session_state.topic,
+                    "papers": [], "comparison": "", "improvements": "",
+                    "edits": [], "query": "", "answer": "", "error": None
+                }
+                result = compare_graph.invoke(init)
+                st.session_state.papers = result["papers"]
+                st.session_state.comparison = result["comparison"]
 
-@app.route("/qa")
-def page_qa():
-    return render_template("qa.html", page="qa")
+        if st.session_state.papers:
+            st.subheader("📚 Related Papers Found")
+            for p in st.session_state.papers:
+                st.markdown(f"""
+<div class="paper-card">
+    <span class="year-badge">{p['year']}</span>
+    <span class="domain-badge">{p.get('domain', 'Research')}</span>
+    <br><strong style="color:#7c9ef8">{p['title']}</strong>
+    <p style="color:#999;font-size:0.85rem">{p['summary'][:300]}...</p>
+    {'<a href="' + p["link"] + '" target="_blank">View on ArXiv →</a>' if p.get("link") else ''}
+</div>""", unsafe_allow_html=True)
 
-@app.route("/compare")
-def page_compare():
-    return render_template("compare.html", page="compare")
+        if st.session_state.comparison:
+            st.divider()
+            st.subheader("📊 Comparative Analysis")
+            st.markdown(st.session_state.comparison)
 
-@app.route("/improve")
-def page_improve():
-    return render_template("improve.html", page="improve")
+# --- TAB 4: Improve ---
+with tab4:
+    if not st.session_state.comparison:
+        st.info("Run the Comparative Study first (Compare tab).")
+    else:
+        if st.button("✏️ Analyze & Rewrite Sections", type="primary"):
+            with st.spinner("Identifying weak sections & generating rewrites..."):
+                init = {
+                    "text": st.session_state.text, "images": [], "chunks": [],
+                    "summary": st.session_state.summary, "vision": [],
+                    "topic": st.session_state.topic,
+                    "papers": [], "comparison": st.session_state.comparison,
+                    "improvements": "", "edits": [],
+                    "query": "", "answer": "", "error": None
+                }
+                result = improve_graph.invoke(init)
+                st.session_state.improvements = result["improvements"]
+                st.session_state.edits = result["edits"]
 
-@app.route("/download")
-def page_download():
-    return render_template("download.html", page="download")
+        if st.session_state.improvements:
+            st.subheader("📋 Improvement Analysis")
+            st.markdown(st.session_state.improvements)
 
-@app.route("/upload", methods=["POST"])
-def upload():
-    try:
-        # Clean up previous session files
-        for f in os.listdir("."):
-            if f.startswith("temp_") and f.endswith(".png"):
-                os.remove(f)
-        if os.path.exists("paper.pdf"):
-            os.remove("paper.pdf")
-
-        file = request.files["file"]
-        path = "paper.pdf"
-        file.save(path)
-        text, images = parse_pdf(path)
-        chunks = chunk_text(text)
-        store_embeddings(chunks)
-        init: PaperState = {
-            "text": text, "images": images, "chunks": chunks,
-            "summary": "", "vision": [], "topic": "",
-            "papers": [], "comparison": "", "improvements": "",
-            "edits": [], "query": "", "answer": "", "error": None
-        }
-        result = upload_graph.invoke(init)
-        return jsonify({"summary": result["summary"], "vision": result["vision"],
-                        "topic": result["topic"], "short_title": result.get("short_title", "research_report")})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/ask", methods=["POST"])
-def ask():
-    try:
-        query = request.json.get("query", "")
-        if not query:
-            return jsonify({"error": "No query provided"}), 400
-        init: PaperState = {
-            "text": "", "images": [], "chunks": [],
-            "summary": "", "vision": [], "topic": "",
-            "papers": [], "comparison": "", "improvements": "",
-            "edits": [], "query": query, "answer": "", "error": None
-        }
-        result = qa_graph.invoke(init)
-        return jsonify({"answer": result["answer"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/compare", methods=["POST"])
-def compare():
-    try:
-        summary = request.json.get("summary", "")
-        topic   = request.json.get("topic", "")
-        init: PaperState = {
-            "text": "", "images": [], "chunks": [],
-            "summary": summary, "vision": [], "topic": topic,
-            "papers": [], "comparison": "", "improvements": "",
-            "edits": [], "query": "", "answer": "", "error": None
-        }
-        result = compare_graph.invoke(init)
-        return jsonify({"papers": result["papers"], "comparison": result["comparison"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/improve", methods=["POST"])
-def improve():
-    try:
-        summary    = request.json.get("summary", "")
-        comparison = request.json.get("comparison", "")
-        full_text  = ""
-        if os.path.exists("paper.pdf"):
-            doc = fitz.open("paper.pdf")
-            for page in doc:
-                full_text += page.get_text()
-            doc.close()
-        init: PaperState = {
-            "text": full_text, "images": [], "chunks": [],
-            "summary": summary, "vision": [], "topic": "",
-            "papers": [], "comparison": comparison, "improvements": "",
-            "edits": [], "query": "", "answer": "", "error": None
-        }
-        result = improve_graph.invoke(init)
-        return jsonify({"improvements": result["improvements"], "edits": result["edits"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/generate-pdf", methods=["POST"])
-def generate_pdf():
-    try:
-        data         = request.json
-        summary      = data.get("summary", "")
-        vision       = data.get("vision", [])
-        comparison   = data.get("comparison", "")
-        improvements = data.get("improvements", "")
-        edits        = data.get("edits", [])
-        papers       = data.get("papers", [])
-        topic        = data.get("topic", "Research Paper")
-        qa_text      = data.get("qa_text", "")
-
-        if not os.path.exists("paper.pdf"):
-            return jsonify({"error": "Original PDF not found."}), 400
-
-        buf = build_analysis_pdf("paper.pdf", summary, vision, comparison,
-                                 improvements, edits, papers, topic, qa_text)
-        return send_file(buf, mimetype="application/pdf",
-                         as_attachment=True, download_name="paper_analyzed.pdf")
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/download-original", methods=["POST"])
-def download_original():
-    """Return only the original PDF with AI-rewritten sections applied in-place."""
-    try:
-        edits = request.json.get("edits", [])
-
-        if not os.path.exists("paper.pdf"):
-            return jsonify({"error": "Original PDF not found."}), 400
-
-        orig = fitz.open("paper.pdf")
-
-        for edit in edits:
-            original_snip = edit.get("original", "").strip()
-            rewritten     = edit.get("rewritten", "").strip()
-            if not original_snip or not rewritten:
-                continue
-
-            found = False
-            for key_len in [120, 80, 50, 30]:
-                search_key = original_snip[:key_len].strip()
-                if not search_key:
-                    continue
-                for page in orig:
-                    hits = page.search_for(search_key)
-                    if not hits:
-                        continue
-                    rect = hits[0]
-                    line_count = max(3, len(original_snip) // 70)
-                    rep_rect = fitz.Rect(
-                        rect.x0 - 1,
-                        rect.y0 - 2,
-                        page.rect.width - MARGIN + 10,
-                        rect.y0 + line_count * 13 + 10
-                    ) & page.rect
-                    page.add_redact_annot(rep_rect, fill=(1, 1, 1))
-                    page.apply_redactions()
-                    fs = 10
-                    x, y = rep_rect.x0 + 1, rep_rect.y0 + fs + 1
-                    max_chars = max(1, int(rep_rect.width / (fs * 0.52)))
-                    words = rewritten.split()
-                    line = ""
-                    for w in words:
-                        test = (line + " " + w).strip()
-                        if len(test) > max_chars:
-                            if y + fs < rep_rect.y1:
-                                page.insert_text((x, y), line, fontsize=fs,
-                                                 fontname="helv", color=(0, 0, 0))
-                                y += fs + 3
-                            line = w
-                        else:
-                            line = test
-                    if line and y + fs < rep_rect.y1:
-                        page.insert_text((x, y), line, fontsize=fs,
-                                         fontname="helv", color=(0, 0, 0))
-                    found = True
-                    break
-                if found:
-                    break
-
-        buf = io.BytesIO()
-        orig.save(buf, garbage=4, deflate=True)
-        orig.close()
-        buf.seek(0)
-        return send_file(buf, mimetype="application/pdf",
-                         as_attachment=True, download_name="paper_edited.pdf")
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(debug=True)
+        if st.session_state.edits:
+            st.divider()
+            st.subheader(f"✏️ {len(st.session_state.edits)} Sections Rewritten")
+            for ed in st.session_state.edits:
+                with st.expander(f"Section: {ed.get('section', 'Unknown')}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.caption("ORIGINAL")
+                        st.text(ed.get("original", "")[:300] + "...")
+                    with col2:
+                        st.caption("REWRITTEN ✨")
+                        st.markdown(ed.get("rewritten", ""))
