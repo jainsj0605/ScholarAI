@@ -127,7 +127,6 @@ def retrieve(query, k=3):
     return [docs[i] for i in I[0] if i < len(docs)]
 
 def search_semantic_scholar(query):
-    """Primary Semantic Search Engine with Rate-Limit Awareness"""
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=5&fields=title,abstract,year,url,venue"
     try:
         res = requests.get(url, timeout=12)
@@ -147,7 +146,6 @@ def search_semantic_scholar(query):
     return []
 
 def search_openalex(query):
-    """Global Academic Catalog - High reliability for engineering topics"""
     url = f"https://api.openalex.org/works?search={requests.utils.quote(query)}&limit=5"
     try:
         res = requests.get(url, timeout=15)
@@ -167,7 +165,6 @@ def search_openalex(query):
     return []
 
 def search_crossref(query):
-    """Engineering Meta-Registry (IEEE, Elsevier, Wiley, etc.)"""
     url = f"https://api.crossref.org/works?query={requests.utils.quote(query)}&rows=5"
     try:
         res = requests.get(url, timeout=12)
@@ -187,21 +184,17 @@ def search_crossref(query):
     return []
 
 def search_arxiv(query):
-    # Basic cleaning - handle "Topic:", smart quotes, and labels
     cleaned_query = re.sub(r'^(Topic|Keywords|Search):\s*', '', query, flags=re.IGNORECASE).strip()
     cleaned_query = re.sub(r'^[“"‘\']*(.*?)[”"’\']*$', r'\1', cleaned_query).strip()
-    
     if not cleaned_query: return []
 
     def perform_search(q_text, sort_by_date=True):
         words = [w for w in re.split(r'\s+', q_text) if w]
         if not words: return []
         q = "+AND+".join([f"all:{quote_plus(w)}" for w in words])
-        
         url = f"https://export.arxiv.org/api/query?search_query={q}&start=0&max_results=5"
         if sort_by_date: url += "&sortBy=submittedDate&sortOrder=descending"
         else: url += "&sortBy=relevance"
-            
         try:
             res = requests.get(url, timeout=25)
             papers = []
@@ -217,44 +210,18 @@ def search_arxiv(query):
                             "title": re.sub(r'\s+', ' ', t_m.group(1)).strip(),
                             "summary": re.sub(r'\s+', ' ', s_m.group(1)).strip(),
                             "year": p_m.group(1)[:4] if p_m else "",
-                            "link": id_m.group(1).strip() if id_m else ""
+                            "link": id_m.group(1).strip() if id_m else "",
+                            "venue": "ArXiv"
                         })
             return papers
         except: return []
 
     words = [w for w in re.split(r'\s+', cleaned_query) if w]
-    
-    # Tier 1: Iterative AND (Date Sorted)
     for count in [len(words), 3, 2]:
         if count > len(words): continue
         results = perform_search(" ".join(words[:count]), sort_by_date=True)
         if results: return results
-        
-    # Tier 2: Iterative AND (Relevance Sorted)
-    for count in [len(words), 2]:
-        if count > len(words): continue
-        results = perform_search(" ".join(words[:count]), sort_by_date=False)
-        if results: return results
-        
-    # Tier 3: Broad OR Fallback (Relevance)
-    try:
-        q_or = "+OR+".join([f"all:{quote_plus(w)}" for w in words[:2]])
-        url = f"https://export.arxiv.org/api/query?search_query={q_or}&max_results=5&sortBy=relevance"
-        res = requests.get(url, timeout=20)
-        papers = []
-        if res.status_code == 200:
-            entries = re.findall(r'<entry>(.*?)</entry>', res.text, re.DOTALL)
-            for entry in entries:
-                t_m = re.search(r'<title>(.*?)</title>', entry, re.DOTALL)
-                s_m = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
-                if t_m and s_m:
-                    papers.append({
-                        "title": re.sub(r'\s+', ' ', t_m.group(1)).strip(),
-                        "summary": re.sub(r'\s+', ' ', s_m.group(1)).strip(),
-                        "year": "", "link": ""
-                    })
-        return papers
-    except: return []
+    return perform_search(cleaned_query, sort_by_date=False)
 
 def validate_relevance(summary, candidate):
     prompt = f"Paper A: {summary[:800]}\nPaper B: {candidate['title']} - {candidate['summary'][:800]}\nScore 1-10 on relevance. JSON only: {{\"score\": X}}"
@@ -310,8 +277,6 @@ def node_extract_topic(state):
 
 def node_arxiv_search(state):
     query = state["topic"]
-    
-    # Run all discovery engines
     arxiv_p = search_arxiv(query)
     crossref_p = search_crossref(query)
     openalex_p = search_openalex(query)
@@ -325,12 +290,11 @@ def node_arxiv_search(state):
         if slug and slug not in seen:
             unique.append(p)
             seen.add(slug)
-            
     state["papers"] = unique[:6]
     return state
 
 def node_compare(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1000]}" for p in state["papers"]])
+    combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1000]}" for p in state["papers"]])
     prompt = f"""Compare original paper with recent research using markdown.
 ### CRITICAL: You MUST complete the 'Quick Take-Away Table' fully. Do not stop mid-generation.
 Original: {state['summary'][:1500]}
@@ -448,7 +412,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🔬 ScholarAI: Research Paper Helper")
-st.caption("Upload a PDF → Get AI Summary, Q&A, ArXiv Comparison, and Improvements")
+st.caption("Upload a PDF → Get AI Summary, Q&A, Multi-Engine Comparison, and Improvements")
 
 # Initialize session state
 for key in ["summary", "vision", "topic", "papers", "comparison",
@@ -464,7 +428,6 @@ with st.sidebar:
 
     if uploaded_file and st.button("🚀 Analyze Paper", type="primary", use_container_width=True):
         with st.spinner("Parsing PDF & running AI analysis..."):
-            # Save uploaded file temporarily
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             tmp.write(uploaded_file.read())
             tmp.close()
@@ -492,7 +455,7 @@ with st.sidebar:
         st.success("✅ Analysis complete!")
 
     if st.session_state.topic:
-        topic_str = ", ".join(st.session_state.topic) if isinstance(st.session_state.topic, list) else st.session_state.topic
+        topic_str = st.session_state.topic if isinstance(st.session_state.topic, str) else ", ".join(st.session_state.topic)
         st.info(f"**Topic:** {topic_str}")
 
 # --- MAIN TABS ---
@@ -517,7 +480,6 @@ with tab2:
         st.info("Upload a paper first to ask questions.")
     else:
         query = st.chat_input("Ask anything about the paper...")
-        # Display history
         for item in st.session_state.qa_history:
             with st.chat_message("user"):
                 st.write(item["q"])
@@ -545,7 +507,7 @@ with tab3:
         st.info("Upload a paper first.")
     else:
         if st.button("🔍 Run Comparative Study", type="primary"):
-            with st.spinner("Searching ArXiv & validating relevance... (this may take 30-60s)"):
+            with st.spinner("Searching multi-engine academic sources... (30-60s)"):
                 init = {
                     "text": "", "images": [], "chunks": [],
                     "summary": st.session_state.summary, "vision": [],
@@ -563,10 +525,10 @@ with tab3:
                 st.markdown(f"""
 <div class="paper-card">
     <span class="year-badge">{p['year']}</span>
-    <span class="domain-badge">{p.get('domain', 'Research')}</span>
+    <span class="domain-badge">{p.get('venue', 'Academic Source')}</span>
     <br><strong style="color:#7c9ef8">{p['title']}</strong>
     <p style="color:#999;font-size:0.85rem">{p['summary'][:300]}...</p>
-    {'<a href="' + p["link"] + '" target="_blank">View on ArXiv →</a>' if p.get("link") else ''}
+    {'<a href="' + p["link"] + '" target="_blank">View Source →</a>' if p.get("link") else ''}
 </div>""", unsafe_allow_html=True)
 
         if st.session_state.comparison:
