@@ -353,15 +353,16 @@ def node_compare_arch(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2.1 Architectural Delta
-CONSTRAINTS: 150 words max. Bullet points ONLY. Focus ONLY on backbone, modules, attention, and decoders.
-Compare the original paper with the recent context below.
+CONSTRAINTS: Provide a MASSIVE TECHNICAL DEEP DIVE. Avoid brief bullets.
+Identify exactly how the original paper's architecture (backbone, attention, fusion, etc.) differs from each related work.
+MANDATORY: Mention related papers by title or year in your analysis.
 
 ### CONTEXT ###
-Original: {state['summary'][:1500]}
-Recent: {combined}
+Original: {state['summary'][:2000]}
+Related Research: {combined}
 
 ## 2.1 Architectural Delta
-* (Detailed comparison here)"""
+(Exhaustive technical analysis with specific paper citations)"""
     state["comp_arch"] = llm(prompt)
     return state
 
@@ -369,14 +370,16 @@ def node_compare_opt(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2.2 Optimization & Loss
-CONSTRAINTS: 150 words max. Bullet points ONLY. Focus ONLY on loss functions and training strategies.
+CONSTRAINTS: Provide an EXHAUSTIVE COMPARISON of mathematical objectives and training strategies.
+MANDATORY: Detail specific loss functions (e.g., Dice, BCE, IoU) and how this paper's optimization differs from the competitors.
+MANDATORY: Cite related papers by title/year.
 
 ### CONTEXT ###
-Original: {state['summary'][:1500]}
-Recent: {combined}
+Original: {state['summary'][:2000]}
+Related Research: {combined}
 
 ## 2.2 Optimization & Loss
-* (Detailed comparison here)"""
+(Deep mathematical and strategic comparison)"""
     state["comp_opt"] = llm(prompt)
     return state
 
@@ -384,14 +387,16 @@ def node_compare_bench(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2.3 Benchmark Parity
-CONSTRAINTS: 150 words max. Bullet points ONLY. Compare performance ONLY on shared datasets.
+CONSTRAINTS: Provide a GRANULAR NUMERICAL COMPARISON.
+Compare this paper's performance on SHARED DATASETS (e.g., COD10K, NC4K) vs. each related paper.
+MANDATORY: Use specific decimal scores and cite the papers providing those scores.
 
 ### CONTEXT ###
-Original: {state['summary'][:1500]}
-Recent: {combined}
+Original: {state['summary'][:2000]}
+Related Research: {combined}
 
 ## 2.3 Benchmark Parity
-* (Detailed comparison here)"""
+(Numerical comparison and fairness analysis)"""
     state["comp_bench"] = llm(prompt)
     return state
 
@@ -399,14 +404,16 @@ def node_compare_innov(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2.4 Innovation Uniqueness
-CONSTRAINTS: 150 words max. Bullet points ONLY. State clearly what is novel vs incremental.
+CONSTRAINTS: Provide an EXHAUSTIVE CONCEPTUAL ANALYSIS.
+Isolate the "First-of-its-kind" novelties versus incremental improvements from prior work. 
+MANDATORY: Explicitly contrast against the specific related papers provided.
 
 ### CONTEXT ###
-Original: {state['summary'][:1500]}
-Recent: {combined}
+Original: {state['summary'][:2000]}
+Related Research: {combined}
 
 ## 2.4 Innovation Uniqueness
-* (Detailed comparison here)"""
+(Categorical analysis of novelty vs prior art)"""
     state["comp_innov"] = llm(prompt)
     return state
 
