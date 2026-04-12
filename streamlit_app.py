@@ -89,7 +89,9 @@ def llm(prompt: str, model: str = TEXT_MODEL) -> str:
         try:
             res = client.chat.completions.create(
                 model=current_model,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=4000,
+                temperature=0.5
             )
             return res.choices[0].message.content
         except Exception as e:
@@ -353,23 +355,39 @@ def node_arxiv_search(state):
 def node_compare(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1000]}" for p in state["papers"]])
     prompt = f"""Compare original paper with recent research using markdown.
+### CRITICAL: You MUST complete the 'Quick Take-Away Table' fully. Do not stop mid-generation.
 Original: {state['summary'][:1500]}
-Recent: {combined}"""
+Recent: {combined}
+
+## Strategic Comparison
+(Provide a deep analysis here)
+
+## Quick Take-Away Table
+| Aspect | This Paper | Recent Work | Innovation |
+| :--- | :--- | :--- | :--- |"""
     state["comparison"] = llm(prompt)
     return state
 
 def node_improve(state):
-    prompt = f"""Identify sections that need improvement.
+    prompt = f"""Identify sections that need improvement based on the comparative analysis.
+### CRITICAL: You MUST complete the 'Discussion & Limitations' table fully.
 Paper text: {state['text'][:6000]}
 Comparative analysis: {state['comparison']}
-Use markdown with section headings."""
+
+## Improvement Strategy
+...
+## Discussion & Limitations
+| Issue | Why it matters | Suggested fix |
+| :--- | :--- | :--- |"""
     state["improvements"] = llm(prompt)
     return state
 
 def node_rewrite(state):
-    prompt = f"""Rewrite weak sections. Paper: {state['text'][:8000]}
+    prompt = f"""Rewrite specific weak sections identified in the analysis. 
+### CRITICAL: You MUST return a VALID JSON array. If you stop early, the app will fail.
+Paper: {state['text'][:8000]}
 Analysis: {state['improvements']}
-Output JSON array: [{{"section":"X","original":"first 150 chars","rewritten":"improved text"}}]"""
+Output JSON array ONLY: [{{"section":"Section Name","original":"EXACT original text snippet","rewritten":"improved text"}}]"""
     raw = llm(prompt)
     try:
         raw = re.sub(r'```(?:json)?', '', raw).strip()
