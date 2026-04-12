@@ -259,26 +259,27 @@ def search_arxiv(query):
 def node_summarize(state):
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer
-CONSTRAINTS: Be concise, dense, and technical. Avoid filler. Use bullets only.
-Provide a COMPREHENSIVE TECHNICAL ANALYSIS.
+CONSTRAINTS: Provide a MASSIVE TECHNICAL ANALYSIS. Avoid brief bullet points.
+Use exhaustive analytical paragraphs to describe architecture, methodology, and theoretical foundations.
+MANDATORY: Detail specific decimal scores and mathematical components found in the text.
 
 ## Executive Summary
-* (High-level impact)
+(Exhaustive high-level analysis of impact and novelty)
 
 ## Problem & Motivation
-* (Core research gap and significance)
+(Deep dive into the research gap and dataset challenges)
 
 ## Architecture & Methodology
-* (Backbones, modules, training strategies)
+(Granular description of backbones, attention mechanisms, loss functions, and inference blocks)
 
 ## Theoretical Contributions
-* (Novel concepts/proofs)
+(Detailed analysis of novel theorems, proofs, or conceptual shifts)
 
 ## Results & Benchmarks
-* (Specific metrics: Accuracy, mIoU, F1 on named datasets)
+(Exhaustive numerical results on every dataset mentioned, including delta comparison)
 
 ## Limitations
-* (Constraints and edge cases)
+(Technical constraints, edge cases, and hardware requirements)
 
 ### PAPER TEXT DATA ###
 {state['text'][:8000]}
