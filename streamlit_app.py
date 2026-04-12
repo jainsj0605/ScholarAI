@@ -70,6 +70,10 @@ class PaperState(TypedDict):
     papers: List[dict]
     comparison: str
     comparison_table: str
+    comp_arch: str
+    comp_opt: str
+    comp_bench: str
+    comp_innov: str
     improvements: str
     edits: List[dict]
     query: str
@@ -97,6 +101,12 @@ def llm(prompt: str, model: str = TEXT_MODEL) -> str:
         # Failsafe: Strip accidental instruction leakage
         content = re.sub(r'^<<< SYSTEM INSTRUCTIONS >>>', '', content, flags=re.MULTILINE).strip()
         content = re.sub(r'^### .* ###', '', content, flags=re.MULTILINE).strip()
+        
+        # Hard Failsafe: Ensure it ends on a full sentence
+        if not content.strip().endswith(('.', '!', '?', ']', '\"', '\'')):
+            last_period = max(content.rfind('.'), content.rfind('!'), content.rfind('?'))
+            if last_period != -1:
+                content = content[:last_period + 1] + "\n\n[Section complete]"
         return content
     except Exception as e:
         # Fallback Logic: Only switch if the primary hits a rate limit
@@ -325,12 +335,13 @@ def node_compare_table(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer
-CONSTRAINTS: Compact table (max 5 rows). Bullet points only for internal cell data. 
-ENSURE metrics: Architecture, Dataset, Accuracy/mIoU/F1, Parameters.
+TASK: Generate a COMPACT QUANTITATIVE COMPARISON TABLE.
+METRICS: Architecture, Dataset, Accuracy/mIoU/F1, Parameters.
+LIMIT: Max 5 rows. Return ONLY the table.
 
 ### CONTEXT ###
-Original: {state['summary'][:1500]}
-Recent: {combined}
+Original Summary: {state['summary'][:1500]}
+Context: {combined}
 
 ## 1. Quantitative Comparison Table
 | Architecture | Dataset | Accuracy/mIoU/F1 | Parameters |
@@ -338,38 +349,65 @@ Recent: {combined}
     state["comparison_table"] = llm(prompt)
     return state
 
-def node_compare_analysis(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
+def node_compare_arch(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer
-CONSTRAINTS: 100 words max per section. Bullet points ONLY. Focus ONLY on deltas.
-TOKEN CONTROL: Prioritize Table -> 2.1 Architectural Delta -> 2.4 Innovation. 
-TERMINATION: If near token limit, STOP after completing a section. DO NOT start a section unless it can be completed. Ensure last sentence is complete.
+ROLE: Technical Reviewer | TASK: 2.1 Architectural Delta
+CONSTRAINTS: 150 words max. Bullet points ONLY. Focus ONLY on backbone, modules, attention, and decoders.
+Compare the original paper with the recent context below.
 
-### COMPARISON TABLE DATA ###
-{state['comparison_table']}
+### CONTEXT ###
+Original: {state['summary'][:1500]}
+Recent: {combined}
 
-### RECENT PAPERS CONTEXT ###
-{combined}
+## 2.1 Architectural Delta
+* (Detailed comparison here)"""
+    state["comp_arch"] = llm(prompt)
+    return state
 
-## 2. Technical Deep Dive (STRICT LIMITS)
+def node_compare_opt(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 2.2 Optimization & Loss
+CONSTRAINTS: 150 words max. Bullet points ONLY. Focus ONLY on loss functions and training strategies.
 
-### 2.1 Architectural Delta
-* (Compare backbone, modules, attention, decoders)
+### CONTEXT ###
+Original: {state['summary'][:1500]}
+Recent: {combined}
 
-### 2.2 Optimization & Loss
-* (Compare loss functions, training strategies)
+## 2.2 Optimization & Loss
+* (Detailed comparison here)"""
+    state["comp_opt"] = llm(prompt)
+    return state
 
-### 2.3 Benchmark Parity
-* (Compare performance on shared datasets)
+def node_compare_bench(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 2.3 Benchmark Parity
+CONSTRAINTS: 150 words max. Bullet points ONLY. Compare performance ONLY on shared datasets.
 
-### 2.4 Innovation Uniqueness
-* (State what is novel vs incremental)
+### CONTEXT ###
+Original: {state['summary'][:1500]}
+Recent: {combined}
 
----
-FAILURE PREVENTION: Ensure every sentence is complete. If truncated, end with "[Output truncated safely]".
-"""
-    state["comparison"] = llm(prompt)
+## 2.3 Benchmark Parity
+* (Detailed comparison here)"""
+    state["comp_bench"] = llm(prompt)
+    return state
+
+def node_compare_innov(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 2.4 Innovation Uniqueness
+CONSTRAINTS: 150 words max. Bullet points ONLY. State clearly what is novel vs incremental.
+
+### CONTEXT ###
+Original: {state['summary'][:1500]}
+Recent: {combined}
+
+## 2.4 Innovation Uniqueness
+* (Detailed comparison here)"""
+    state["comp_innov"] = llm(prompt)
     return state
 
 def node_improve(state):
@@ -442,11 +480,17 @@ def build_graphs():
     g2 = StateGraph(PaperState)
     g2.add_node("arxiv_search", node_arxiv_search)
     g2.add_node("compare_table", node_compare_table)
-    g2.add_node("compare_analysis", node_compare_analysis)
+    g2.add_node("compare_arch", node_compare_arch)
+    g2.add_node("compare_opt", node_compare_opt)
+    g2.add_node("compare_bench", node_compare_bench)
+    g2.add_node("compare_innov", node_compare_innov)
     g2.set_entry_point("arxiv_search")
     g2.add_edge("arxiv_search", "compare_table")
-    g2.add_edge("compare_table", "compare_analysis")
-    g2.add_edge("compare_analysis", END)
+    g2.add_edge("compare_table", "compare_arch")
+    g2.add_edge("compare_arch", "compare_opt")
+    g2.add_edge("compare_opt", "compare_bench")
+    g2.add_edge("compare_bench", "compare_innov")
+    g2.add_edge("compare_innov", END)
 
     g3 = StateGraph(PaperState)
     g3.add_node("improve", node_improve)
@@ -493,6 +537,7 @@ st.caption("Upload a PDF → Get AI Summary, Q&A, Multi-Engine Comparison, and I
 
 # Initialize session state
 for key in ["summary", "vision", "topic", "papers", "comparison", "comparison_table",
+            "comp_arch", "comp_opt", "comp_bench", "comp_innov",
             "improvements", "edits", "text", "images", "chunks", "qa_history"]:
     if key not in st.session_state:
         st.session_state[key] = [] if key in ["vision", "topic", "papers", "edits",
@@ -595,7 +640,10 @@ with tab3:
                 result = compare_graph.invoke(init)
                 st.session_state.papers = result["papers"]
                 st.session_state.comparison_table = result["comparison_table"]
-                st.session_state.comparison = result["comparison"]
+                st.session_state.comp_arch = result["comp_arch"]
+                st.session_state.comp_opt = result["comp_opt"]
+                st.session_state.comp_bench = result["comp_bench"]
+                st.session_state.comp_innov = result["comp_innov"]
 
         if st.session_state.papers:
             st.subheader("📚 Related Papers Found")
@@ -611,13 +659,26 @@ with tab3:
 
         if st.session_state.comparison_table:
             st.divider()
-            st.subheader("📊 Quantitative Comparison Table")
+            st.subheader("📊 1. Quantitative Comparison Table")
             st.markdown(st.session_state.comparison_table)
 
-        if st.session_state.comparison:
+        if st.session_state.comp_arch:
             st.divider()
-            st.subheader("📊 Technical Deep Dive")
-            st.markdown(st.session_state.comparison)
+            st.subheader("📊 2. Technical Deep Dive")
+            st.markdown("### 2.1 Architectural Delta")
+            st.markdown(st.session_state.comp_arch)
+            
+        if st.session_state.comp_opt:
+            st.markdown("### 2.2 Optimization & Loss")
+            st.markdown(st.session_state.comp_opt)
+            
+        if st.session_state.comp_bench:
+            st.markdown("### 2.3 Benchmark Parity")
+            st.markdown(st.session_state.comp_bench)
+            
+        if st.session_state.comp_innov:
+            st.markdown("### 2.4 Innovation Uniqueness")
+            st.markdown(st.session_state.comp_innov)
 
 # --- TAB 4: Improve ---
 with tab4:
