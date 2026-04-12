@@ -690,16 +690,23 @@ with tab3:
 
 # --- TAB 4: Improve ---
 with tab4:
-    if not st.session_state.comparison:
+    if not st.session_state.comp_arch:
         st.info("Run the Comparative Study first (Compare tab).")
     else:
         if st.button("✏️ Analyze & Rewrite Sections", type="primary"):
             with st.spinner("Identifying weak sections & generating rewrites..."):
+                # Combine modular results for the improvement engine
+                combined_comparison = f"""
+                {st.session_state.comp_arch}
+                {st.session_state.comp_opt}
+                {st.session_state.comp_bench}
+                {st.session_state.comp_innov}
+                """
                 init = {
                     "text": st.session_state.text, "images": [], "chunks": [],
                     "summary": st.session_state.summary, "vision": [],
                     "topic": st.session_state.topic,
-                    "papers": [], "comparison": st.session_state.comparison,
+                    "papers": [], "comparison": combined_comparison,
                     "improvements": "", "edits": [],
                     "query": "", "answer": "", "error": None
                 }
