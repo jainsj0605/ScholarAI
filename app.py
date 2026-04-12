@@ -20,6 +20,7 @@ from langgraph.graph import StateGraph, END
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
 client        = Groq(api_key=GROQ_API_KEY)
 TEXT_MODEL    = "openai/gpt-oss-120b"
+FALLBACK_MODEL = "llama-3.3-70b-versatile"
 FAST_MODEL    = "llama-3.1-8b-instant"
 VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
 
@@ -82,15 +83,29 @@ def encode_image(path):
         return base64.b64encode(f.read()).decode("utf-8")
 
 def llm(prompt: str, model: str = TEXT_MODEL) -> str:
+    current_model = model
     try:
+        # Initial Attempt
         res = client.chat.completions.create(
-            model=model,
+            model=current_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=4000,
             temperature=0.5
         )
         return res.choices[0].message.content
     except Exception as e:
+        # Fallback Logic: Only switch if the primary hits a rate limit
+        if "429" in str(e) or "limit" in str(e).lower():
+            try:
+                res = client.chat.completions.create(
+                    model=FALLBACK_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=4000,
+                    temperature=0.5
+                )
+                return res.choices[0].message.content
+            except Exception as e2:
+                return f"Error (Both Models Busy): {e2}"
         return f"Error: {e}"
 
 def parse_pdf(file_path):
@@ -269,6 +284,10 @@ def node_extract_topic(state):
 
 def node_arxiv_search(state):
     query = state["topic"]
+    if not query or "Error:" in query:
+        state["papers"] = []
+        return state
+        
     arxiv_p = search_arxiv(query)
     crossref_p = search_crossref(query)
     openalex_p = search_openalex(query)
