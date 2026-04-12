@@ -92,7 +92,11 @@ def llm(prompt: str, model: str = TEXT_MODEL) -> str:
             max_tokens=4000,
             temperature=0.5
         )
-        return res.choices[0].message.content
+        content = res.choices[0].message.content
+        # Failsafe: Strip accidental instruction leakage
+        content = re.sub(r'^<<< SYSTEM INSTRUCTIONS >>>', '', content, flags=re.MULTILINE).strip()
+        content = re.sub(r'^### .* ###', '', content, flags=re.MULTILINE).strip()
+        return content
     except Exception as e:
         # Fallback Logic: Only switch if the primary hits a rate limit
         if "429" in str(e) or "limit" in str(e).lower():
@@ -305,24 +309,29 @@ def node_arxiv_search(state):
     return state
 
 def node_compare(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1000]}" for p in state["papers"]])
+    combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Compare the original paper provided below with the list of recent research papers.
-Identify specific technical gaps, novelties, and overlapping methods.
-DO NOT echo these instructions or start with "CRITICAL:". 
-Start your response DIRECTLY with the Markdown header '## Strategic Comparison'.
+Perform a HIGHLY GRANULAR TECHNICAL COMPARISON between the original paper and the recent research provided.
+Your goal is to identify precise technical differences in:
+1. ARCHITECTURE: Backbones (e.g., Swin, ResNet), Decoders, and Attention Modules.
+2. LOSS FUNCTIONS: Specific mathematical approaches (e.g., Dice, BCE, IoU-aware).
+3. BENCHMARKS: Performance on specific datasets (e.g., COD10K, NC4K, CAMO).
+4. METRICS: Comparative gains in S-measure ($S_m$), F-measure ($F_\beta$), or E-measure ($E_m$).
+
+Be critical, technical, and pedantic. Avoid generic praise.
+Start your response DIRECTLY with the Markdown header '## Technical Deep Dive'.
 
 ### ORIGINAL PAPER SUMMARY ###
-{state['summary'][:1500]}
+{state['summary'][:2000]}
 
 ### RECENT ACADEMIC CONTEXT ###
 {combined if combined else "No specific recent papers found for deep comparison."}
 
-## Strategic Comparison
-(Provide a deep analysis of research gaps and innovations here)
+## Technical Deep Dive
+(Provide an exhaustive technical analysis comparing backbones, losses, and architectural novelties)
 
-## Quick Take-Away Table
-| Aspect | This Paper | Recent Work | Innovation |
+## Quantitative Comparison Table
+| Technical Aspect | This Paper (IFBONet/Original) | Related Work (Competitors) | Research Gap/Advantage |
 | :--- | :--- | :--- | :--- |"""
     state["comparison"] = llm(prompt)
     return state
@@ -454,6 +463,7 @@ for key in ["summary", "vision", "topic", "papers", "comparison",
 # --- SIDEBAR: Upload ---
 with st.sidebar:
     st.header("📄 Upload Paper")
+    st.info("🚀 **System Version: v2.2 (Fallback + Robust Prompts)**")
     uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
 
     if uploaded_file and st.button("🚀 Analyze Paper", type="primary", use_container_width=True):
