@@ -342,10 +342,16 @@ Recent: {combined}
 def node_compare_analysis(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']} ({p.get('venue','Research')}): {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Perform an EXHAUSTIVE TECHNICAL DEEP DIVE analysis based on the comparison table and research context provided.
-Analyze specific architectural differences (Technical Delta) and methodological novelties.
-Use long-form paragraphs. Do not echo instructions. 
-Start directly with the header '## Technical Deep Dive'.
+Perform a HIGH-DENSITY TECHNICAL DEEP DIVE based on the comparison table.
+STRICT LIMIT: Provide exactly 4 distinct technical sections only.
+STYLE: Use high-information density bullets. Avoid long-form paragraphs.
+CRITICAL: Do not start a section if you cannot finish it. Complete all sentences.
+
+Mandatory Sections:
+1. ARCHITECTURAL DELTA: Differences in Backbones, Attention, and Decoders.
+2. OPTIMIZATION & LOSS: Mathematical variations in training objectives.
+3. BENCHMARK PARITY: Direct comparison of scores on specific datasets.
+4. INNOVATION UNIQUENESS: The specific niche this paper fills relative to others.
 
 ### COMPARISON TABLE DATA ###
 {state['comparison_table']}
@@ -354,7 +360,7 @@ Start directly with the header '## Technical Deep Dive'.
 {combined}
 
 ## Technical Deep Dive
-(Deep technical analysis here)"""
+(Provide exactly 4 sections of dense technical comparison bullets)"""
     state["comparison"] = llm(prompt)
     return state
 
