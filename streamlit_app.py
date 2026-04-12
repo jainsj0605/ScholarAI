@@ -463,7 +463,6 @@ for key in ["summary", "vision", "topic", "papers", "comparison",
 # --- SIDEBAR: Upload ---
 with st.sidebar:
     st.header("📄 Upload Paper")
-    st.info("🚀 **System Version: v2.2 (Fallback + Robust Prompts)**")
     uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
 
     if uploaded_file and st.button("🚀 Analyze Paper", type="primary", use_container_width=True):
