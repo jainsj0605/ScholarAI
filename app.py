@@ -87,15 +87,19 @@ def encode_image(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-def llm(prompt: str, model: str = TEXT_MODEL) -> str:
+def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000) -> str:
+    # Truncate prompt to prevent 413 or TPM errors
+    if len(prompt) > max_chars:
+        prompt = prompt[:max_chars] + "\n\n[Context truncated due to size limits...]"
+    
     current_model = model
     try:
         # Initial Attempt
         res = client.chat.completions.create(
             model=current_model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=4000,
-            temperature=0.5
+            max_tokens=2000, # Reduced to leave room for input tokens
+            temperature=0.3  # Slightly lower for more precision
         )
         content = res.choices[0].message.content
         # Failsafe: Strip accidental instruction leakage
@@ -110,18 +114,46 @@ def llm(prompt: str, model: str = TEXT_MODEL) -> str:
         return content
     except Exception as e:
         # Fallback Logic: Only switch if the primary hits a rate limit
-        if "429" in str(e) or "limit" in str(e).lower():
+        err_msg = str(e).lower()
+        if "429" in err_msg or "limit" in err_msg or "413" in err_msg:
             try:
+                # When falling back, use a smaller max_chars if it was a 413
+                fallback_limit = 10000 if "413" in err_msg else max_chars
                 res = client.chat.completions.create(
                     model=FALLBACK_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=4000,
-                    temperature=0.5
+                    messages=[{"role": "user", "content": prompt[:fallback_limit]}],
+                    max_tokens=2000,
+                    temperature=0.3
                 )
                 return res.choices[0].message.content
             except Exception as e2:
-                return f"Error (Both Models Busy): {e2}"
+                return f"Error (Both Models Busy/Limited): {e2}"
         return f"Error: {e}"
+
+def distill_context(context: str) -> str:
+    """Extracts only the most critical technical points from the comparative analysis."""
+    if not context or "Error" in context: return "No comparative data available."
+    
+    # Priority sections: Architectural Delta and Benchmark Parity
+    distilled = []
+    
+    # Extract Architectural Delta
+    arch_match = re.search(r'## 2\.1 Architectural Delta(.*?)(?=##|$)', context, re.DOTALL | re.IGNORECASE)
+    if arch_match:
+        content = arch_match.group(1).strip()
+        # Take the most substantial part
+        distilled.append(f"CRITICAL ARCHITECTURAL GAPS:\n{content[:1500]}")
+    
+    # Extract Benchmark Parity
+    bench_match = re.search(r'## 2\.3 Benchmark Parity(.*?)(?=##|$)', context, re.DOTALL | re.IGNORECASE)
+    if bench_match:
+        content = bench_match.group(1).strip()
+        distilled.append(f"BENCHMARK SHORTFALLS:\n{content[:1000]}")
+        
+    if not distilled:
+        return context[:2500] # Fallback to first 2.5k chars
+        
+    return "\n\n".join(distilled)
 
 def parse_pdf(file_path):
     doc = fitz.open(file_path)
@@ -419,34 +451,49 @@ Related Research: {combined}
     return state
 
 def node_improve(state):
+    # DISTILL context to avoid TPM limits and focus the LLM
+    important_context = distill_context(state['comparison'])
+    
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Identify exactly 3-5 weak sections that need improvement based on the comparative analysis.
-Use specific references to the Comparative Analysis.
-Start your response DIRECTLY with '## Improvement Strategy'.
+ROLE: Senior Technical Editor
+TASK: Identify exactly 3-5 SPECIFIC weak sections in the paper that need technical improvement.
 
-### PAPER TEXT DATA ###
-{state['text'][:6000]}
+CONSTRAINTS:
+- AVOID GENERIC FEEDBACK (e.g., "improve clarity", "add more detail").
+- FOCUS ON TECHNICAL GAPS: Lack of specific architectural justifications, missing benchmark comparisons, or weak mathematical grounding found during the Comparative Study.
+- REFERENCE the Comparative Analysis directly.
+- Start your response DIRECTLY with '## Improvement Strategy'.
 
-### COMPARATIVE ANALYSIS CONTEXT ###
-{state['comparison']}
+### DISTILLED COMPARATIVE CONTEXT ###
+{important_context}
+
+### RELEVANT PAPER SNIPPETS ###
+{state['text'][:5000]}
 
 ## Improvement Strategy
-...
-## Discussion & Limitations
-| Issue | Why it matters | Suggested fix |
-| :--- | :--- | :--- |"""
+"""
     state["improvements"] = llm(prompt)
     return state
 
 def node_rewrite(state):
-    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-Rewrite the weak sections identified in the analysis. 
-You MUST return a valid JSON array only. No preamble.
-Format: [{{"section":"Section Name","original":"EXACT original text snippet","rewritten":"improved text"}}]
+    if "Error" in state["improvements"]:
+        state["edits"] = []
+        return state
 
-### FULL CONTEXT ###
-Paper: {state['text'][:8000]}
-Analysis: {state['improvements']}
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Author
+TASK: Rewrite the weak sections identified to address technical gaps (architectural detail, benchmark context).
+CONSTRAINTS:
+- Return a VALID JSON array ONLY.
+- Format: [{{"section": "Precise Section Name", "original": "Original text snippet", "rewritten": "Improved technical text"}}]
+- Ensure section names are unique and match the paper's structure.
+- Maximum 5 rewrites.
+
+### ANALYSIS OF WEAKNESSES ###
+{state['improvements']}
+
+### FULL PAPER CONTEXT (TRUNCATED) ###
+{state['text'][:6000]}
 
 ### OUTPUT ###
 """
@@ -454,8 +501,21 @@ Analysis: {state['improvements']}
     try:
         raw = re.sub(r'```(?:json)?', '', raw).strip()
         m = re.search(r'\[.*\]', raw, re.DOTALL)
-        state["edits"] = json.loads(m.group()) if m else []
-    except: state["edits"] = []
+        if m:
+            edits = json.loads(m.group())
+            # Basic validation to ensure they aren't all the same
+            unique_edits = []
+            seen_sections = set()
+            for ed in edits:
+                sec = ed.get("section", "General")
+                if sec not in seen_sections:
+                    unique_edits.append(ed)
+                    seen_sections.add(sec)
+            state["edits"] = unique_edits
+        else:
+            state["edits"] = []
+    except:
+        state["edits"] = []
     return state
 
 def node_qa(state):
@@ -716,17 +776,24 @@ with tab4:
 
         if st.session_state.improvements:
             st.subheader("📋 Improvement Analysis")
-            st.markdown(st.session_state.improvements)
+            if "Error" in st.session_state.improvements:
+                st.error(st.session_state.improvements)
+            else:
+                st.markdown(st.session_state.improvements)
 
         if st.session_state.edits:
             st.divider()
             st.subheader(f"✏️ {len(st.session_state.edits)} Sections Rewritten")
             for ed in st.session_state.edits:
-                with st.expander(f"Section: {ed.get('section', 'Unknown')}"):
+                title = ed.get('section', 'Unknown Section')
+                with st.expander(f"Section: {title}"):
                     col1, col2 = st.columns(2)
                     with col1:
                         st.caption("ORIGINAL")
-                        st.text(ed.get("original", "")[:300] + "...")
+                        orig = ed.get("original", "")
+                        st.text(orig[:500] + ("..." if len(orig)>500 else ""))
                     with col2:
                         st.caption("REWRITTEN ✨")
                         st.markdown(ed.get("rewritten", ""))
+        elif st.session_state.improvements and "Error" not in st.session_state.improvements:
+             st.info("No specific technical rewrites were generated for the identified improvements.")
