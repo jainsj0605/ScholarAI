@@ -2,150 +2,72 @@
 {% block title %}Download — Research AI{% endblock %}
 {% block content %}
 
-<div style="margin-bottom:24px">
-  <h2 style="font-size:1.4rem;color:#a78bfa;margin-bottom:4px">📥 Download Analysis PDF</h2>
-  <p style="color:#666;font-size:.88rem">Your original paper with AI-rewritten sections + 4 analysis pages appended.</p>
+<div style="margin-bottom:28px">
+  <h2 style="font-size:1.4rem;color:#a78bfa;margin-bottom:6px">Export Analysis</h2>
+  <p style="color:#666;font-size:.88rem">Generate and download a comprehensive PDF report of all AI insights.</p>
 </div>
 
 <div id="noPaper" class="card hidden">
-  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a></p>
+  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:var(--accent-blue)">Upload one first →</a></p>
 </div>
 
 <div id="mainContent">
-
-  <!-- What's included -->
   <div class="card">
-    <div class="card-title">📦 What's in the PDF</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">
-      <div id="sec1" style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
-        <div style="font-size:1.2rem;margin-bottom:6px">📄</div>
-        <div style="font-size:.82rem;font-weight:600;color:#e0e0e0;margin-bottom:4px">Original Paper</div>
-        <div style="font-size:.75rem;color:#666">With AI rewrites applied in-place</div>
-        <div id="sec1status" class="badge badge-ok" style="margin-top:8px;display:inline-block">Ready</div>
+    <div class="card-title">📦 Final Report Package</div>
+    <p style="color:#888;font-size:.88rem;margin-bottom:20px">The report includes the paper summary, vision insights, comparative research, and AI improvements.</p>
+    
+    <div style="background:#080a0f;border:1px solid #1e2535;border-radius:10px;padding:24px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <span style="font-size:1.2rem">📄</span>
+        <div style="font-size:.9rem;font-weight:600;word-break:break-all;line-height:1.4" id="reportName">scholar_report.pdf</div>
       </div>
-      <div id="sec2" style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
-        <div style="font-size:1.2rem;margin-bottom:6px">📋</div>
-        <div style="font-size:.82rem;font-weight:600;color:#e0e0e0;margin-bottom:4px">Section 1 — Summary</div>
-        <div style="font-size:.75rem;color:#666">Paper summary + figure analysis</div>
-        <div id="sec2status" class="badge" style="margin-top:8px;display:inline-block"></div>
-      </div>
-      <div id="sec3" style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
-        <div style="font-size:1.2rem;margin-bottom:6px">💬</div>
-        <div style="font-size:.82rem;font-weight:600;color:#e0e0e0;margin-bottom:4px">Section 2 — Q&A</div>
-        <div style="font-size:.75rem;color:#666">Q&A session history</div>
-        <div id="sec3status" class="badge" style="margin-top:8px;display:inline-block"></div>
-      </div>
-      <div id="sec4" style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
-        <div style="font-size:1.2rem;margin-bottom:6px">🔍</div>
-        <div style="font-size:.82rem;font-weight:600;color:#e0e0e0;margin-bottom:4px">Section 3 — Compare</div>
-        <div style="font-size:.75rem;color:#666">arXiv papers + comparison</div>
-        <div id="sec4status" class="badge" style="margin-top:8px;display:inline-block"></div>
-      </div>
-      <div id="sec5" style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
-        <div style="font-size:1.2rem;margin-bottom:6px">✏️</div>
-        <div style="font-size:.82rem;font-weight:600;color:#e0e0e0;margin-bottom:4px">Section 4 — Improvements</div>
-        <div style="font-size:.75rem;color:#666">Rewritten sections</div>
-        <div id="sec5status" class="badge" style="margin-top:8px;display:inline-block"></div>
-      </div>
+      <div style="font-size:.78rem;color:#475569">Contains ~4-6 pages of technical analysis.</div>
     </div>
 
-    <hr class="divider"/>
-
-    <div class="row">
-      <button class="btn btn-success" id="dlBtn" onclick="downloadPDF()" style="font-size:1rem;padding:12px 28px">
-        📥 Download PDF
-      </button>
-      <span id="dlStatus"></span>
-    </div>
+    <button class="btn btn-primary" id="downloadBtn" onclick="runDownload()">Generate &amp; Download PDF</button>
   </div>
-
-  <!-- Session summary -->
-  <div class="card">
-    <div class="card-title">📊 Session Summary</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:12px;text-align:center">
-        <div id="statTopic" style="font-size:.82rem;color:#7c9ef8;font-weight:600;margin-bottom:4px">—</div>
-        <div style="font-size:.72rem;color:#555">Topic</div>
-      </div>
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:12px;text-align:center">
-        <div id="statQA" style="font-size:1.4rem;color:#f0a04b;font-weight:700">0</div>
-        <div style="font-size:.72rem;color:#555">Questions Asked</div>
-      </div>
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:12px;text-align:center">
-        <div id="statPapers" style="font-size:1.4rem;color:#4caf82;font-weight:700">0</div>
-        <div style="font-size:.72rem;color:#555">Papers Compared</div>
-      </div>
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:12px;text-align:center">
-        <div id="statEdits" style="font-size:1.4rem;color:#a78bfa;font-weight:700">0</div>
-        <div style="font-size:.72rem;color:#555">Sections Rewritten</div>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 {% endblock %}
 {% block scripts %}
 <script>
-  const topic       = SS.str("topic");
-  const summary     = SS.str("summary");
-  const vision      = SS.get("vision") || [];
-  const comparison  = SS.str("comparison");
-  const improvements= SS.str("improvements");
-  const edits       = SS.get("edits") || [];
-  const papers      = SS.get("papers") || [];
-  const qaHistory   = SS.get("qaHistory") || [];
-
+  const topic = SS.str("topic");
   if(!topic){
     document.getElementById("noPaper").classList.remove("hidden");
     document.getElementById("mainContent").classList.add("hidden");
+  } else {
+    const st = SS.str("short_title") || "research_report";
+    document.getElementById("reportName").textContent = `scholar_report_${st}.pdf`;
   }
 
-  // Status badges
-  function setBadge(id, ok, label){
-    const el = document.getElementById(id);
-    el.textContent = label;
-    el.className = "badge " + (ok ? "badge-ok" : "badge-err");
-  }
-
-  setBadge("sec2status", !!summary,      summary      ? "Ready" : "Missing");
-  setBadge("sec3status", qaHistory.length>0, qaHistory.length>0 ? `${qaHistory.length} Q&As` : "No Q&A");
-  setBadge("sec4status", !!comparison,   comparison   ? "Ready" : "Not run");
-  setBadge("sec5status", edits.length>0, edits.length>0 ? `${edits.length} edits` : "Not run");
-
-  // Stats
-  document.getElementById("statTopic").textContent  = topic || "—";
-  document.getElementById("statQA").textContent     = qaHistory.length;
-  document.getElementById("statPapers").textContent = papers.length;
-  document.getElementById("statEdits").textContent  = edits.length;
-
-  async function downloadPDF(){
-    setBtn("dlBtn", true, "Building PDF...");
-    document.getElementById("dlStatus").innerHTML = "";
-
-    // Build Q&A text for PDF
-    const qaText = qaHistory.map(h=>`Q: ${h.q}\n\nA: ${h.a}`).join("\n\n---\n\n");
-
-    try{
-      const res = await fetch("/generate-pdf",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          summary, vision, comparison, improvements,
-          edits, papers, topic, qa_text: qaText
-        })});
-      if(!res.ok){
-        const err = await res.json();
-        throw new Error(err.error || "PDF generation failed");
-      }
+  async function runDownload(){
+    setBtn("downloadBtn", true, "Generating PDF...");
+    try {
+      const res = await fetch("/download", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          summary: SS.str("summary"),
+          comparison: SS.str("comparison"),
+          improvements: SS.str("improvements"),
+          rewrites: SS.str("rewrites")
+        })
+      });
+      
+      if(!res.ok) throw new Error("Failed to generate PDF");
+      
       const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href = url; a.download = "paper_analyzed.pdf"; a.click();
-      URL.revokeObjectURL(url);
-      document.getElementById("dlStatus").innerHTML = `<span class="badge badge-ok">✓ Downloaded</span>`;
-    } catch(e){
-      document.getElementById("dlStatus").innerHTML = `<span class="badge badge-err">✗ ${e.message}</span>`;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = document.getElementById("reportName").textContent;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch(e) {
+      alert("Export Error: " + e.message);
     }
-    setBtn("dlBtn", false, "📥 Download PDF");
+    setBtn("downloadBtn", false, "Generate & Download PDF");
   }
 </script>
 {% endblock %}

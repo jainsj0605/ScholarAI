@@ -6,67 +6,79 @@
   <title>{% block title %}AI Research Analyzer{% endblock %}</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
+    :root {
+      --accent-blue: #7c9ef8;
+      --accent-green: #4caf82;
+      --accent-orange: #f0a04b;
+    }
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh;display:flex;flex-direction:column}
+    body{font-family:'Segoe UI', system-ui, -apple-system, sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh;display:flex;flex-direction:column;line-height:1.5}
 
     /* NAV */
     nav{background:#13182a;border-bottom:1px solid #1e2a40;padding:0 32px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:100}
-    .nav-brand{color:#7c9ef8;font-weight:700;font-size:1rem;padding:16px 20px 16px 0;border-right:1px solid #1e2a40;margin-right:8px;white-space:nowrap}
+    .nav-brand{color:var(--accent-blue);font-weight:700;font-size:1rem;padding:16px 20px 16px 0;border-right:1px solid #1e2a40;margin-right:8px;white-space:nowrap}
     .nav-brand span{font-size:1.2rem;margin-right:6px}
     .nav-link{padding:16px 18px;font-size:.82rem;color:#666;text-decoration:none;border-bottom:2px solid transparent;transition:.2s;white-space:nowrap}
     .nav-link:hover{color:#a0b8f8}
-    .nav-link.active{color:#7c9ef8;border-bottom-color:#7c9ef8}
-    .nav-link.locked{color:#333;cursor:not-allowed;pointer-events:none}
-    .nav-status{margin-left:auto;font-size:.75rem;color:#555;padding:6px 12px;background:#0f1117;border-radius:20px;border:1px solid #1e2a40}
-    .nav-status.ready{color:#4caf82;border-color:#2a4a35}
+    .nav-link.active{color:var(--accent-blue);border-bottom-color:var(--accent-blue);background:rgba(124, 158, 248, 0.05)}
+    .nav-status{margin-left:auto;font-size:.72rem;color:#555;padding:6px 14px;background:#080a0f;border-radius:20px;border:1px solid #1e2a40;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .nav-status.ready{color:var(--accent-green);border-color:rgba(76, 175, 130, 0.4);background:rgba(76, 175, 130, 0.05)}
 
     /* LAYOUT */
-    .page{max-width:1000px;margin:0 auto;padding:32px 20px;flex:1}
+    .page{max-width:1000px;margin:0 auto;padding:32px 20px;flex:1;width:100%}
 
     /* CARDS */
-    .card{background:#1a1f2e;border:1px solid #2a3347;border-radius:12px;padding:24px;margin-bottom:20px}
-    .card-title{font-size:.95rem;color:#7c9ef8;margin-bottom:16px;display:flex;align-items:center;gap:8px;font-weight:600}
+    .card{background:#161b2a;border:1px solid #2a3347;border-radius:12px;padding:24px;margin-bottom:20px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)}
+    .card-title{font-size:.95rem;color:var(--accent-blue);margin-bottom:16px;display:flex;align-items:center;gap:8px;font-weight:600}
 
     /* BUTTONS */
-    .btn{padding:9px 22px;border:none;border-radius:8px;cursor:pointer;font-size:.88rem;font-weight:500;transition:opacity .2s,transform .1s;display:inline-flex;align-items:center;gap:6px}
-    .btn:hover{opacity:.85;transform:translateY(-1px)}
-    .btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
-    .btn-primary{background:#7c9ef8;color:#0f1117}
-    .btn-success{background:#4caf82;color:#0f1117}
-    .btn-warning{background:#f0a04b;color:#0f1117}
-    .btn-ghost{background:transparent;color:#7c9ef8;border:1px solid #7c9ef8}
+    .btn{padding:9px 22px;border:none;border-radius:8px;cursor:pointer;font-size:.88rem;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
+    .btn:hover{opacity:0.9;transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+    .btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
+    .btn-primary{background:var(--accent-blue);color:#0f1117}
+    .btn-success{background:var(--accent-green);color:#0f1117}
+    .btn-warning{background:var(--accent-orange);color:#0f1117}
+    .btn-ghost{background:transparent;color:var(--accent-blue);border:1px solid var(--accent-blue)}
 
     /* MARKDOWN OUTPUT */
-    .md-out{background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:18px;font-size:.86rem;line-height:1.8;overflow-y:auto;color:#c8d0e0}
-    .md-out:empty::before{content:"Output will appear here...";color:#333}
-    .md-out h1,.md-out h2{color:#7c9ef8;font-size:1rem;margin:14px 0 6px;border-bottom:1px solid #2a3347;padding-bottom:4px}
-    .md-out h3{color:#a0b8f8;font-size:.92rem;margin:10px 0 4px}
-    .md-out strong{color:#f0c070}
-    .md-out ul,.md-out ol{padding-left:20px;margin:6px 0}
-    .md-out li{margin:3px 0}
-    .md-out p{margin:6px 0}
-    .md-out code{background:#1e2535;padding:2px 6px;border-radius:4px;font-size:.82rem;color:#a8d8a8}
-    .md-out blockquote{border-left:3px solid #7c9ef8;padding-left:12px;color:#888;margin:8px 0}
+    .md-out{background:#080a0f;border:1px solid #1e2535;border-radius:8px;padding:20px;font-size:.88rem;line-height:1.75;color:#cbd5e1;overflow-y:auto;max-height:500px;word-wrap:break-word}
+    .md-out::-webkit-scrollbar{width:8px}
+    .md-out::-webkit-scrollbar-track{background:#080a0f}
+    .md-out::-webkit-scrollbar-thumb{background:#1e2a40;border-radius:10px}
+    .md-out::-webkit-scrollbar-thumb:hover{background:var(--accent-blue)}
+    .md-out:empty::before{content:"Analysis will appear here...";color:#334155;font-style:italic}
+    .md-out h1,.md-out h2{color:var(--accent-blue);font-size:1.1rem;margin:24px 0 10px;border-bottom:1px solid #1e2535;padding-bottom:6px;font-weight:700}
+    .md-out h3{color:#a0b8f8;font-size:1rem;margin:18px 0 6px;font-weight:600}
+    .md-out strong{color:#f0c070;font-weight:600}
+    .md-out ul,.md-out ol{padding-left:24px;margin:12px 0}
+    .md-out li{margin:6px 0}
+    .md-out p{margin:10px 0}
+    .md-out code{background:#1e2535;padding:2px 6px;border-radius:4px;font-size:.82rem;color:#86efac}
+    .md-out blockquote{border-left:4px solid var(--accent-blue);padding-left:16px;color:#94a3b8;margin:16px 0;background:rgba(124, 158, 248, 0.03);border-radius:0 4px 4px 0}
 
     /* MISC */
-    .loader{display:inline-block;width:13px;height:13px;border:2px solid #333;border-top-color:#7c9ef8;border-radius:50%;animation:spin .7s linear infinite}
+    .loader{display:inline-block;width:14px;height:14px;border:2px solid #1e2535;border-top-color:var(--accent-blue);border-radius:50%;animation:spin .8s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.74rem}
-    .badge-ok{background:#1e3a2a;color:#4caf82}
-    .badge-err{background:#3a1e1e;color:#e05c5c}
-    .badge-info{background:#1e2a3a;color:#7c9ef8}
+    .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.02em}
+    .badge-ok{background:rgba(76, 175, 130, 0.1);color:var(--accent-green);border:1px solid rgba(76, 175, 130, 0.2)}
+    .badge-err{background:rgba(224, 92, 92, 0.1);color:#e05c5c;border:1px solid rgba(224, 92, 92, 0.2)}
+    .badge-info{background:rgba(124, 158, 248, 0.1);color:var(--accent-blue);border:1px solid rgba(124, 158, 248, 0.2)}
     .hidden{display:none!important}
-    .divider{border:none;border-top:1px solid #2a3347;margin:20px 0}
+    .divider{border:none;border-top:1px solid #2a3347;margin:24px 0}
     .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
     @media(max-width:600px){.grid2{grid-template-columns:1fr}}
+
+    .expand-btn{background:none;border:none;cursor:pointer;color:#475569;font-size:1rem;padding:4px 8px;border-radius:6px;transition:.2s}
+    .expand-btn:hover{color:var(--accent-blue);background:#1e2535}
   </style>
   {% block head %}{% endblock %}
 </head>
 <body>
 
 <nav>
-  <div class="nav-brand"><span>🔬</span>Research AI</div>
+  <div class="nav-brand"><span>🔬</span>ScholarAI</div>
   <a href="/" class="nav-link {% if page=='upload' %}active{% endif %}" id="nav-upload">Upload</a>
   <a href="/qa" class="nav-link {% if page=='qa' %}active{% endif %}" id="nav-qa">Q&amp;A</a>
   <a href="/compare" class="nav-link {% if page=='compare' %}active{% endif %}" id="nav-compare">Compare</a>
@@ -90,14 +102,16 @@
     b.innerHTML = loading ? `<span class="loader"></span> ${label}` : label;
   }
 
-  // Shared session state via sessionStorage
   const SS = {
     get: k => { try{ return JSON.parse(sessionStorage.getItem(k)) }catch{ return null } },
     set: (k,v) => sessionStorage.setItem(k, JSON.stringify(v)),
-    str: k => { const v = SS.get(k); return typeof v === 'string' ? v : (v ? JSON.stringify(v) : ""); }
+    str: k => {
+      const v = sessionStorage.getItem(k);
+      if(!v) return "";
+      try { return JSON.parse(v); } catch { return v; }
+    }
   };
 
-  // Update nav status from session
   function refreshNav(){
     const topic = SS.str("topic");
     const st = document.getElementById("navStatus");

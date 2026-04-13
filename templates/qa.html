@@ -2,43 +2,43 @@
 {% block title %}Q&A — Research AI{% endblock %}
 {% block content %}
 
-<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
   <div>
-    <h2 style="font-size:1.4rem;color:#7c9ef8;margin-bottom:4px">💬 Ask the Paper</h2>
-    <p style="color:#666;font-size:.88rem">Ask anything about the uploaded paper. Answers are grounded in the paper content using RAG.</p>
+    <h2 style="font-size:1.4rem;color:var(--accent-blue);margin-bottom:4px">💬 Paper Q&amp;A</h2>
+    <p style="color:#666;font-size:.88rem">Ask questions and get answers grounded in the paper's text using RAG.</p>
   </div>
-  <div id="paperTag" style="font-size:.8rem;color:#555"></div>
+  <div id="paperTag"></div>
 </div>
 
 <div id="noPaper" class="card hidden">
-  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a></p>
+  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:var(--accent-blue)">Upload one first →</a></p>
 </div>
 
-<div class="card" id="qaCard">
-  <div style="display:flex;gap:10px;margin-bottom:6px">
-    <input type="text" id="queryInput"
-           placeholder="e.g. What dataset was used? What is the main contribution?"
-           style="flex:1;background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:11px 14px;color:#e0e0e0;font-size:.9rem;outline:none"
-           onfocus="this.style.borderColor='#7c9ef8'" onblur="this.style.borderColor='#2a3347'"
-           onkeydown="if(event.key==='Enter') askQuestion()"/>
-    <button class="btn btn-primary" id="askBtn" onclick="askQuestion()">Ask</button>
-  </div>
-  <p style="font-size:.75rem;color:#444;margin-bottom:16px">Press Enter or click Ask</p>
-
-  <!-- Suggested questions -->
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-    <span style="font-size:.75rem;color:#555;align-self:center">Try:</span>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What is the main contribution?</button>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What dataset was used?</button>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What are the results?</button>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What are the limitations?</button>
+<div id="mainContent">
+  <!-- Query section -->
+  <div class="card">
+    <div style="display:flex;gap:10px">
+      <input type="text" id="queryInput" placeholder="How does the methodology work?" 
+             style="flex:1;background:#080a0f;border:1px solid #2a3347;border-radius:8px;padding:12px 18px;color:#e2e8f0;font-size:.9rem;outline:none"
+             onkeydown="if(event.key==='Enter') runQA()"/>
+      <button class="btn btn-primary" id="qaBtn" onclick="runQA()">Ask AI</button>
+    </div>
   </div>
 
-  <hr class="divider"/>
+  <!-- Answer section -->
+  <div class="card hidden" id="answerSection">
+    <div class="card-title">🤖 AI Answer</div>
+    <div id="answerOutput" class="md-out"></div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="clearQA()" style="font-size:.75rem">Clear</button>
+    </div>
+  </div>
 
   <!-- History -->
-  <div id="qaHistory" style="display:flex;flex-direction:column;gap:14px;max-height:520px;overflow-y:auto"></div>
-  <p id="emptyHint" style="color:#333;font-size:.85rem;text-align:center;padding:30px 0">Your Q&A history will appear here</p>
+  <div class="card hidden" id="historySection">
+    <div class="card-title">📜 History</div>
+    <div id="historyList" style="display:flex;flex-direction:column;gap:12px"></div>
+  </div>
 </div>
 
 {% endblock %}
@@ -47,50 +47,57 @@
   const topic = SS.str("topic");
   if(!topic){
     document.getElementById("noPaper").classList.remove("hidden");
-    document.getElementById("qaCard").classList.add("hidden");
+    document.getElementById("mainContent").classList.add("hidden");
   } else {
+    document.getElementById("mainContent").classList.remove("hidden");
     document.getElementById("paperTag").innerHTML = `<span class="badge badge-info">${topic}</span>`;
   }
 
-  // Restore history
-  const history = SS.get("qaHistory") || [];
-  history.forEach(h => renderQA(h.q, h.a));
-  if(history.length) document.getElementById("emptyHint").classList.add("hidden");
+  const savedHistory = SS.get("qa_history") || [];
+  if(savedHistory.length) showHistory();
 
-  function setQ(t){ document.getElementById("queryInput").value = t; }
-
-  async function askQuestion(){
+  async function runQA(){
     const q = document.getElementById("queryInput").value.trim();
     if(!q) return;
-    setBtn("askBtn", true, "Thinking...");
-    document.getElementById("emptyHint").classList.add("hidden");
+    setBtn("qaBtn", true, "Searching...");
     try{
-      const res  = await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q})});
+      const res  = await fetch("/qa", {method:"POST", headers:{"Content-Type":"application/json"}, 
+        body:JSON.stringify({question: q})});
       const data = await res.json();
       if(data.error) throw new Error(data.error);
-      renderQA(q, data.answer);
-      // Save to session
-      const hist = SS.get("qaHistory") || [];
-      hist.push({q, a: data.answer});
-      SS.set("qaHistory", hist);
+
+      document.getElementById("answerOutput").innerHTML = md(data.answer);
+      document.getElementById("answerSection").classList.remove("hidden");
+      
+      // Save to history
+      savedHistory.unshift({q, a: data.answer});
+      if(savedHistory.length > 10) savedHistory.pop();
+      SS.set("qa_history", savedHistory);
+      showHistory();
+      
       document.getElementById("queryInput").value = "";
     } catch(e){
-      renderQA(q, `**Error:** ${e.message}`);
+      alert("Error: " + e.message);
     }
-    setBtn("askBtn", false, "Ask");
+    setBtn("qaBtn", false, "Ask AI");
   }
 
-  function renderQA(q, a){
-    const el = document.getElementById("qaHistory");
-    const div = document.createElement("div");
-    div.style.cssText = "background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:16px";
-    div.innerHTML = `
-      <div style="color:#f0a04b;font-size:.8rem;font-weight:600;margin-bottom:8px;display:flex;gap:6px;align-items:center">
-        <span>Q</span><span style="color:#2a3347">|</span><span style="color:#c8d0e0;font-weight:400">${q}</span>
+  function showHistory(){
+    const list = document.getElementById("historyList");
+    list.innerHTML = savedHistory.map(h => `
+      <div style="padding:14px;border:1px solid #1e2a40;border-radius:8px;background:#080a0f">
+        <div style="color:var(--accent-blue);font-size:.78rem;font-weight:700;margin-bottom:6px">Q: ${h.q}</div>
+        <div style="font-size:.85rem;color:#94a3b8">${md(h.a)}</div>
       </div>
-      <div class="md-out" style="border:none;padding:0;background:transparent;max-height:none">${md(a)}</div>`;
-    el.appendChild(div);
-    el.scrollTop = el.scrollHeight;
+    `).join('');
+    document.getElementById("historySection").classList.remove("hidden");
+  }
+
+  function clearQA(){
+    document.getElementById("answerSection").classList.add("hidden");
+    SS.set("qa_history", []);
+    savedHistory.length = 0;
+    document.getElementById("historySection").classList.add("hidden");
   }
 </script>
 {% endblock %}

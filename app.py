@@ -131,27 +131,28 @@ def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000) -> str:
         return f"Error: {e}"
 
 def distill_context(context: str) -> str:
-    """Extracts only the most critical technical points from the comparative analysis."""
+    """Extracts critical technical points including Architecture, Optimization, and Innovation."""
     if not context or "Error" in context: return "No comparative data available."
     
-    # Priority sections: Architectural Delta and Benchmark Parity
     distilled = []
     
-    # Extract Architectural Delta
-    arch_match = re.search(r'## 2\.1 Architectural Delta(.*?)(?=##|$)', context, re.DOTALL | re.IGNORECASE)
-    if arch_match:
-        content = arch_match.group(1).strip()
-        # Take the most substantial part
-        distilled.append(f"CRITICAL ARCHITECTURAL GAPS:\n{content[:1500]}")
+    # Mapping of headers to labels and character caps
+    sections = [
+        (r'## 2\.1 Architectural Delta(.*?)(?=##|$)', "ARCHITECTURAL GAPS", 1500),
+        (r'## 2\.2 Methodology & Objectives(.*?)(?=##|$)', "METHODOLOGY SHORTFALLS", 1200),
+        (r'## 2\.3 Benchmark Parity(.*?)(?=##|$)', "BENCHMARK COMPARISONS", 1200),
+        (r'## 2\.4 Innovation Uniqueness(.*?)(?=##|$)', "NOVELTY ANALYSIS", 1200)
+    ]
     
-    # Extract Benchmark Parity
-    bench_match = re.search(r'## 2\.3 Benchmark Parity(.*?)(?=##|$)', context, re.DOTALL | re.IGNORECASE)
-    if bench_match:
-        content = bench_match.group(1).strip()
-        distilled.append(f"BENCHMARK SHORTFALLS:\n{content[:1000]}")
+    for pattern, label, cap in sections:
+        match = re.search(pattern, context, re.DOTALL | re.IGNORECASE)
+        if match:
+            content = match.group(1).strip()
+            if content:
+                distilled.append(f"[{label}]\n{content[:cap]}")
         
     if not distilled:
-        return context[:2500] # Fallback to first 2.5k chars
+        return context[:3000] # Fallback to first 3k chars if parsing fails
         
     return "\n\n".join(distilled)
 
@@ -402,17 +403,18 @@ Related Research: {combined}
 def node_compare_opt(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 2.2 Optimization & Loss
-CONSTRAINTS: Provide an EXHAUSTIVE COMPARISON of mathematical objectives and training strategies.
-MANDATORY: Detail specific loss functions (e.g., Dice, BCE, IoU) and how this paper's optimization differs from the competitors.
+ROLE: Technical Reviewer | TASK: 2.2 Methodology & Objectives
+CONSTRAINTS: Provide an EXHAUSTIVE COMPARISON of research methodologies, mathematical objectives, or training strategies.
+MANDATORY: Detail specific objectives (e.g., Loss functions, physical constraints, or experimental protocols) and how this paper's approach differs from the competitors.
 MANDATORY: Cite related papers by title/year.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
 Related Research: {combined}
 
-## 2.2 Optimization & Loss
-(Deep mathematical and strategic comparison)"""
+## 2.2 Methodology & Objectives
+(Deep methodological and strategic comparison)
+"""
     state["comp_opt"] = llm(prompt)
     return state
 
@@ -450,18 +452,14 @@ Related Research: {combined}
     state["comp_innov"] = llm(prompt)
     return state
 
-def node_improve(state):
-    # DISTILL context to avoid TPM limits and focus the LLM
-    important_context = distill_context(state['comparison'])
-    
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Senior Technical Editor
 TASK: Identify exactly 3-5 SPECIFIC weak sections in the paper that need technical improvement.
 
 CONSTRAINTS:
 - AVOID GENERIC FEEDBACK (e.g., "improve clarity", "add more detail").
-- FOCUS ON TECHNICAL GAPS: Lack of specific architectural justifications, missing benchmark comparisons, or weak mathematical grounding found during the Comparative Study.
-- REFERENCE the Comparative Analysis directly.
+- FOCUS ON TECHNICAL GAPS: Lack of specific architectural justifications, missing benchmark comparisons, weak methodological grounding (Optimization, Loss functions, or core Research Objectives), or incremental novelty vs total innovation.
+- REFERENCE the Comparative Analysis directly (Architectural, Methodology/Optimization, Benchmarks, Innovation).
 - Start your response DIRECTLY with '## Improvement Strategy'.
 
 ### DISTILLED COMPARATIVE CONTEXT ###
@@ -737,7 +735,7 @@ with tab3:
             st.markdown(st.session_state.comp_arch)
             
         if st.session_state.comp_opt:
-            st.markdown("### 2.2 Optimization & Loss")
+            st.markdown("### 2.2 Methodology & Objectives")
             st.markdown(st.session_state.comp_opt)
             
         if st.session_state.comp_bench:
@@ -796,4 +794,4 @@ with tab4:
                         st.caption("REWRITTEN ✨")
                         st.markdown(ed.get("rewritten", ""))
         elif st.session_state.improvements and "Error" not in st.session_state.improvements:
-             st.info("No specific technical rewrites were generated for the identified improvements.")
+             pass # Removed "No specific technical rewrites" message as requested

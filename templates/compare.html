@@ -2,50 +2,72 @@
 {% block title %}Compare — Research AI{% endblock %}
 {% block content %}
 
-<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
   <div>
-    <h2 style="font-size:1.4rem;color:#f0a04b;margin-bottom:4px">🔍 Comparative Study</h2>
-    <p style="color:#666;font-size:.88rem">Search recent arXiv papers on the same topic and compare them with your
-      paper.</p>
+    <h2 style="font-size:1.4rem;color:var(--accent-orange);margin-bottom:4px">🔍 Comparative Study</h2>
+    <p style="color:#666;font-size:.88rem">Benchmarking your research against the global corpus using Hybrid Intelligence.</p>
   </div>
   <div id="paperTag"></div>
 </div>
 
 <div id="noPaper" class="card hidden">
-  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a>
-  </p>
+  <div class="card-title">⚠️ No Paper Analysis</div>
+  <p style="color:#666;font-size:.9rem;margin-bottom:12px">Upload a paper first to unlock comparative features.</p>
+  <a href="/" class="btn btn-primary" style="text-decoration:none">Back to Upload</a>
 </div>
 
-<div id="mainContent">
-  <div class="card">
-    <div class="card-title">🔎 Search Settings</div>
+<div class="hidden" id="mainContent">
+  <!-- Search tools -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title" style="color:var(--accent-blue)">🔎 Search Settings</div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:200px">
         <label style="font-size:.78rem;color:#888;display:block;margin-bottom:6px">Search topic (auto-detected)</label>
         <input type="text" id="topicInput"
-          style="width:100%;background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:10px 14px;color:#e0e0e0;font-size:.88rem;outline:none"
-          onfocus="this.style.borderColor='#f0a04b'" onblur="this.style.borderColor='#2a3347'" />
+               style="width:100%;background:#080a0f;border:1px solid #2a3347;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:0.88rem;outline:none"
+               onfocus="this.style.borderColor='var(--accent-orange)'" onblur="this.style.borderColor='#2a3347'"/>
       </div>
       <div style="padding-top:20px">
-        <button class="btn btn-warning" id="compareBtn" onclick="runComparison()">Run Comparative Study</button>
+        <button class="btn btn-warning" id="compareBtn" onclick="runComparison()">Scan Global Literature</button>
       </div>
+    </div>
+    <p style="font-size:0.75rem;color:#475569;margin-top:14px">
+      Uses **Hybrid Search**: Semantic Scholar + OpenAlex + ArXiv for maximum discovery.
+    </p>
+    
+    <!-- Diagnostic Panel -->
+    <div id="searchDiagnostic" class="hidden" style="margin-top:16px;padding:12px 18px;background:rgba(240,160,75,0.05);border:1px solid rgba(240,160,75,0.2);border-radius:10px;display:flex;align-items:center;gap:12px">
+      <span style="font-size:1.1rem">⚠️</span>
+      <div style="font-size:.8rem;color:var(--accent-orange);font-weight:500" id="diagMsg"></div>
     </div>
   </div>
 
-  <!-- Results (hidden until run) -->
+  <!-- Results View -->
   <div id="resultsSection" class="hidden">
+    <!-- Related Papers -->
     <div class="card">
-      <div class="card-title">📚 Related Papers Found</div>
-      <div id="papersList" style="display:flex;flex-direction:column;gap:10px"></div>
+      <div class="card-title" style="justify-content:space-between">
+        <span>📚 Verified Related Papers</span>
+        <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'papersCard')">⊞</button>
+      </div>
+      <div id="papersCard" style="max-height:500px;overflow-y:auto;padding-right:4px">
+        <div id="papersList" style="display:flex;flex-direction:column;gap:12px"></div>
+      </div>
     </div>
 
+    <!-- Analysis -->
     <div class="card">
-      <div class="card-title">📊 Comparative Analysis</div>
-      <div id="comparisonOutput" class="md-out" style="max-height:500px"></div>
+      <div class="card-title" style="justify-content:space-between">
+        <span>📊 Strategic Comparison</span>
+        <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'comparisonCard')">⊞</button>
+      </div>
+      <div id="comparisonCard">
+        <div id="comparisonOutput" class="md-out" style="max-height:600px"></div>
+      </div>
     </div>
 
-    <div style="display:flex;justify-content:flex-end;gap:10px">
-      <a href="/improve"><button class="btn btn-success">Continue to Improve →</button></a>
+    <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px">
+      <a href="/improve" class="btn btn-success">Continue to Improve →</a>
     </div>
   </div>
 </div>
@@ -54,79 +76,91 @@
 {% block scripts %}
 <script>
   const topic = SS.str("topic");
-  if (!topic) {
+  if(!topic){
     document.getElementById("noPaper").classList.remove("hidden");
     document.getElementById("mainContent").classList.add("hidden");
   } else {
+    document.getElementById("mainContent").classList.remove("hidden");
     document.getElementById("topicInput").value = topic;
     document.getElementById("paperTag").innerHTML = `<span class="badge badge-info">${topic}</span>`;
   }
 
-  // Restore saved comparison
+  // Restore saved
   const savedComp = SS.str("comparison");
   const savedPapers = SS.get("papers");
-  if (savedComp && savedPapers) {
-    showResults(savedPapers, savedComp);
-  }
+  if(savedComp && savedPapers) showResults(savedPapers, savedComp);
 
-  async function runComparison() {
+  async function runComparison(){
     const summary = SS.str("summary");
     const t = document.getElementById("topicInput").value.trim() || topic;
-    setBtn("compareBtn", true, "Searching arXiv...");
-
-    // Clear previous results and hide section until data arrives
+    setBtn("compareBtn", true, "Scanning Literature...");
     document.getElementById("resultsSection").classList.add("hidden");
-    document.getElementById("papersList").innerHTML = "";
-    document.getElementById("comparisonOutput").innerHTML = "";
+    
+    const diag = document.getElementById("searchDiagnostic");
+    diag.classList.add("hidden");
 
-    try {
-      const res = await fetch("/compare", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary, topic: t })
-      });
+    try{
+      const res  = await fetch("/compare",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({summary, topic: t})});
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      if(data.error) throw new Error(data.error);
 
-      // Check for backend 'Search failed' status
-      if (data.papers && data.papers.length === 1 && data.papers[0].title === "Search failed") {
-        throw new Error(data.papers[0].summary);
+      // Check for rate limits in summary
+      if(data.papers && data.papers.length > 0){
+        const firstP = data.papers[0].summary || "";
+        if(firstP.includes("Rate-Limited")){
+          diag.classList.remove("hidden");
+          document.getElementById("diagMsg").textContent = "Semantic Scholar rate-limited. Using OpenAlex & ArXiv fallback sources.";
+        }
       }
 
       SS.set("comparison", data.comparison);
       SS.set("papers", data.papers);
       showResults(data.papers, data.comparison);
-    } catch (e) {
-      let msg = e.message;
-      if (msg.includes("timeout")) msg = "Network slow/timeout. Please wait 5 seconds and click 'Run' again.";
-      alert("Search Status: " + msg);
+    } catch(e){
+      alert("Search failed: " + e.message);
     }
-    setBtn("compareBtn", false, "Run Comparative Study");
+    setBtn("compareBtn", false, "Scan Global Literature");
   }
 
-  function showResults(papers, comparison) {
+  function showResults(papers, comparison){
     const list = document.getElementById("papersList");
-    if (!papers || papers.length === 0) {
-      list.innerHTML = `
-        <div style="background:#1a1d25;border:1px dashed #3a445b;border-radius:8px;padding:24px;text-align:center">
-          <p style="color:#888;font-size:.9rem;margin-bottom:8px">No related papers found for this topic.</p>
-          <p style="color:#555;font-size:.78rem">The search might have been too specific. Try editing the keywords above.</p>
-        </div>`;
-    } else {
-      list.innerHTML = papers.map(p => `
-        <div style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
-          <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
-            <div style="display:flex;gap:8px;align-items:flex-start">
-              <span class="badge badge-info" style="flex-shrink:0">${p.year}</span>
-              <span style="color:#7c9ef8;font-size:.88rem;font-weight:600">${p.title}</span>
-            </div>
-            ${p.link ? `<a href="${p.link}" target="_blank" style="color:#f0a04b;font-size:.75rem;text-decoration:none;flex-shrink:0;border:1px solid #f0a04b;padding:2px 8px;border-radius:4px;transition:0.2s" onmouseover="this.style.background='#f0a04b';this.style.color='#000'" onmouseout="this.style.background='transparent';this.style.color='#f0a04b'">View →</a>` : ''}
+    list.innerHTML = papers.map(p=>`
+      <div style="background:#080a0f;border:1px solid #1e2a40;border-radius:10px;padding:16px;transition:.2s" onmouseover="this.style.borderColor='var(--accent-blue)'" onmouseout="this.style.borderColor='#1e2a40'">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px">
+          <div>
+            <span class="badge badge-info" style="margin-bottom:4px">${p.year || 'N/A'}</span>
+            <span class="badge" style="background:rgba(255,255,255,0.05);color:#888;font-size:.65rem;border:1px solid #2a3347">${p.venue || 'Research'}</span>
           </div>
-          <p style="color:#888;font-size:.8rem;line-height:1.6">${p.summary.substring(0, 280)}...</p>
-        </div>`).join('');
-    }
+          ${p.citations ? `<span style="color:var(--accent-blue);font-size:.7rem;font-weight:700">↗ ${p.citations} citations</span>` : ''}
+        </div>
+        <div style="color:var(--accent-blue);font-size:.9rem;font-weight:700;margin-bottom:8px;line-height:1.3">${p.title}</div>
+        <p style="color:#64748b;font-size:.78rem;line-height:1.6">${p.summary.substring(0,250)}...</p>
+        <a href="${p.link}" target="_blank" style="color:var(--accent-blue);font-size:.7rem;text-decoration:none;margin-top:10px;display:inline-block">View Source ↗</a>
+      </div>`).join('');
 
-    document.getElementById("comparisonOutput").innerHTML = md(comparison || "No comparison generated.");
+    document.getElementById("comparisonOutput").innerHTML = md(comparison);
     document.getElementById("resultsSection").classList.remove("hidden");
+  }
+
+  function toggleExpand(btn, id){
+    const card = document.getElementById(id);
+    const expanded = card.classList.toggle("expanded-card");
+    if(expanded){
+      card.style.position = "fixed";
+      card.style.inset = "20px";
+      card.style.zIndex = "1000";
+      card.style.background = "#161b2a";
+      card.style.maxHeight = "none";
+      btn.textContent = "⊡";
+    } else {
+      card.style.position = "";
+      card.style.inset = "";
+      card.style.zIndex = "";
+      card.style.background = "";
+      card.style.maxHeight = "600px";
+      btn.textContent = "⊞";
+    }
   }
 </script>
 {% endblock %}

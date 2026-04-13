@@ -2,52 +2,40 @@
 {% block title %}Improve — Research AI{% endblock %}
 {% block content %}
 
-<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
   <div>
-    <h2 style="font-size:1.4rem;color:#4caf82;margin-bottom:4px">✏️ AI Section Rewriter</h2>
-    <p style="color:#666;font-size:.88rem">AI identifies weak sections, rewrites them, and applies changes directly to the PDF.</p>
+    <h2 style="font-size:1.4rem;color:var(--accent-green);margin-bottom:4px">✏️ Research Refinement</h2>
+    <p style="color:#666;font-size:.88rem">AI-driven identification of weak sections and suggested improvements.</p>
   </div>
   <div id="paperTag"></div>
 </div>
 
 <div id="noPaper" class="card hidden">
-  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a></p>
+  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:var(--accent-blue)">Upload one first →</a></p>
 </div>
 
 <div id="mainContent">
-
   <div class="card">
-    <div class="card-title">🔬 Analysis & Rewrite</div>
-    <p style="font-size:.84rem;color:#888;margin-bottom:16px">
-      This will read the full paper, compare it with recent research, identify weak sections, and produce improved rewrites.
-      <span style="color:#f0a04b">Requires comparative study to be run first.</span>
-    </p>
-    <div class="row">
-      <button class="btn btn-success" id="improveBtn" onclick="runImprovement()">Analyze &amp; Rewrite Sections</button>
-      <span id="improveStatus"></span>
+    <div class="card-title">🔬 Improvement Analysis</div>
+    <p style="color:#888;font-size:.85rem;margin-bottom:16px">Analyzes your paper against the context of recent research to find gaps.</p>
+    <button class="btn btn-success" id="improveBtn" onclick="runImprovement()">Run AI Analysis</button>
+  </div>
+
+  <div id="resultsSection" class="hidden">
+    <div class="card">
+      <div class="card-title">💡 Suggested Improvements</div>
+      <div id="improveOutput" class="md-out" style="max-height:500px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">✍️ Proposed Rewrites</div>
+      <div id="rewriteOutput" class="md-out" style="max-height:600px"></div>
+    </div>
+    
+    <div style="display:flex;justify-content:flex-end;gap:12px">
+      <a href="/download" class="btn btn-primary">Proceed to Download →</a>
     </div>
   </div>
-
-  <!-- Improvement analysis -->
-  <div class="card hidden" id="analysisCard">
-    <div class="card-title">📋 Improvement Analysis</div>
-    <div id="improvementOutput" class="md-out" style="max-height:380px"></div>
-  </div>
-
-  <!-- Edits preview -->
-  <div class="card hidden" id="editsCard">
-    <div class="card-title">
-      ✏️ Sections to be Rewritten
-      <span id="editCount" class="badge badge-ok" style="margin-left:8px"></span>
-    </div>
-    <div id="editsPreview" style="display:flex;flex-direction:column;gap:12px"></div>
-  </div>
-
-  <!-- Next -->
-  <div class="hidden" id="nextBtn" style="display:flex;justify-content:flex-end;gap:10px;margin-top:4px">
-    <a href="/download"><button class="btn btn-success">Continue to Download →</button></a>
-  </div>
-
 </div>
 
 {% endblock %}
@@ -58,73 +46,36 @@
     document.getElementById("noPaper").classList.remove("hidden");
     document.getElementById("mainContent").classList.add("hidden");
   } else {
+    document.getElementById("mainContent").classList.remove("hidden");
     document.getElementById("paperTag").innerHTML = `<span class="badge badge-info">${topic}</span>`;
   }
 
-  // Restore saved improvements
-  const savedImprovements = SS.str("improvements");
-  const savedEdits = SS.get("edits");
-  if(savedImprovements){
-    showAnalysis(savedImprovements, savedEdits || []);
-  }
+  // Restore
+  const savedImprov = SS.str("improvements");
+  const savedRewrites = SS.str("rewrites");
+  if(savedImprov) showResults(savedImprov, savedRewrites);
 
   async function runImprovement(){
-    const summary    = SS.str("summary");
-    const comparison = SS.str("comparison");
-    if(!comparison){
-      alert("Please run the Comparative Study first (Compare page).");
-      return;
-    }
-    setBtn("improveBtn", true, "Analyzing & rewriting...");
-    document.getElementById("improveStatus").innerHTML = "";
-    document.getElementById("analysisCard").classList.add("hidden");
-    document.getElementById("editsCard").classList.add("hidden");
-    document.getElementById("nextBtn").classList.add("hidden");
-
+    setBtn("improveBtn", true, "Analyzing...");
+    document.getElementById("resultsSection").classList.add("hidden");
     try{
-      const res  = await fetch("/improve",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({summary, comparison})});
+      const res  = await fetch("/improve", {method:"POST"});
       const data = await res.json();
       if(data.error) throw new Error(data.error);
 
       SS.set("improvements", data.improvements);
-      SS.set("edits", data.edits || []);
-      showAnalysis(data.improvements, data.edits || []);
-      document.getElementById("improveStatus").innerHTML = `<span class="badge badge-ok">✓ Done</span>`;
+      SS.set("rewrites", data.rewrites);
+      showResults(data.improvements, data.rewrites);
     } catch(e){
-      document.getElementById("improveStatus").innerHTML = `<span class="badge badge-err">✗ ${e.message}</span>`;
+      alert("Error: " + e.message);
     }
-    setBtn("improveBtn", false, "Analyze & Rewrite Sections");
+    setBtn("improveBtn", false, "Run AI Analysis");
   }
 
-  function showAnalysis(improvements, edits){
-    document.getElementById("improvementOutput").innerHTML = md(improvements);
-    document.getElementById("analysisCard").classList.remove("hidden");
-
-    if(edits.length > 0){
-      document.getElementById("editCount").textContent = `${edits.length} section${edits.length>1?'s':''}`;
-      const preview = document.getElementById("editsPreview");
-      preview.innerHTML = edits.map((e,i)=>`
-        <div style="border:1px solid #2a3347;border-radius:10px;overflow:hidden">
-          <div style="background:#252d3d;padding:10px 16px;font-size:.85rem;font-weight:600;color:#7c9ef8;display:flex;align-items:center;gap:8px">
-            <span>✏️</span><span>${e.section}</span>
-          </div>
-          <div class="grid2" style="padding:14px;gap:12px">
-            <div>
-              <div style="font-size:.75rem;color:#888;margin-bottom:6px;font-weight:600">ORIGINAL</div>
-              <div style="background:#0f1117;border:1px solid #2a3347;border-radius:6px;padding:10px;font-size:.8rem;color:#888;max-height:120px;overflow:hidden;line-height:1.6">${e.original?.substring(0,300)}...</div>
-            </div>
-            <div>
-              <div style="font-size:.75rem;color:#4caf82;margin-bottom:6px;font-weight:600">REWRITTEN</div>
-              <div style="background:#0f1117;border:1px solid #2a4a35;border-radius:6px;padding:10px;font-size:.8rem;color:#c8d0e0;max-height:120px;overflow-y:auto;line-height:1.6">${e.rewritten?.substring(0,400)}</div>
-            </div>
-          </div>
-        </div>`).join('');
-      document.getElementById("editsCard").classList.remove("hidden");
-    }
-
-    document.getElementById("nextBtn").classList.remove("hidden");
-    document.getElementById("nextBtn").style.display = "flex";
+  function showResults(improv, rewrites){
+    document.getElementById("improveOutput").innerHTML = md(improv);
+    document.getElementById("rewriteOutput").innerHTML = md(rewrites);
+    document.getElementById("resultsSection").classList.remove("hidden");
   }
 </script>
 {% endblock %}
