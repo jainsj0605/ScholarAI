@@ -452,6 +452,10 @@ Related Research: {combined}
     state["comp_innov"] = llm(prompt)
     return state
 
+def node_improve(state):
+    # DISTILL context to avoid TPM limits and focus the LLM
+    important_context = distill_context(state['comparison'])
+    
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Senior Technical Editor
 TASK: Identify exactly 3-5 SPECIFIC weak sections in the paper that need technical improvement.
