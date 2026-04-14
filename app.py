@@ -70,10 +70,11 @@ class PaperState(TypedDict):
     papers: List[dict]
     comparison: str
     comparison_table: str
-    comp_arch: str
-    comp_opt: str
-    comp_bench: str
-    comp_innov: str
+    comp_problem: str
+    comp_method: str
+    comp_data: str
+    comp_results: str
+    comp_eval: str
     improvements: str
     edits: List[dict]
     query: str
@@ -138,10 +139,11 @@ def distill_context(context: str) -> str:
     
     # Mapping of headers to labels and character caps
     sections = [
-        (r'## 2\.1 Architectural Delta(.*?)(?=##|$)', "ARCHITECTURAL GAPS", 1500),
-        (r'## 2\.2 Methodology & Objectives(.*?)(?=##|$)', "METHODOLOGY SHORTFALLS", 1200),
-        (r'## 2\.3 Benchmark Parity(.*?)(?=##|$)', "BENCHMARK COMPARISONS", 1200),
-        (r'## 2\.4 Innovation Uniqueness(.*?)(?=##|$)', "NOVELTY ANALYSIS", 1200)
+        (r'## 2\.1 Problem & Objective(.*?)(?=##|$)', "PROBLEM GAPS", 1200),
+        (r'## 2\.2 Methodology & Approach(.*?)(?=##|$)', "METHODOLOGY SHORTFALLS", 1200),
+        (r'## 2\.3 Data & Evidence(.*?)(?=##|$)', "DATA DIFFERENCES", 1200),
+        (r'## 2\.4 Results & Findings(.*?)(?=##|$)', "RESULTS COMPARISONS", 1200),
+        (r'## 2\.5 Evaluation Method(.*?)(?=##|$)', "EVALUATION GAPS", 1200)
     ]
     
     for pattern, label, cap in sections:
@@ -384,74 +386,89 @@ Context: {combined}
     state["comparison_table"] = llm(prompt, disable_failsafe=True)
     return state
 
-def node_compare_arch(state):
+def node_compare_problem(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 2.1 Architectural Delta
-CONSTRAINTS: Provide a MASSIVE TECHNICAL DEEP DIVE. Identify exactly how the original paper's architecture (backbone, attention, fusion, etc.) differs from each related work.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the architectural comparison for each competitor.
+ROLE: Technical Reviewer | TASK: 2.1 Problem & Objective
+CONSTRAINTS: What is the paper trying to solve? Compare the primary objective facing the original paper versus the related research (e.g., Engineering system design, Medical disease treatment, Economics policy, etc.).
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the comparison.
 MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
 Related Research: {combined}
 
-## 2.1 Architectural Delta
-(Exhaustive technical analysis with specific paper citations)"""
-    state["comp_arch"] = llm(prompt)
-    return state
-
-def node_compare_opt(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
-    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 2.2 Methodology & Objectives
-CONSTRAINTS: Provide an EXHAUSTIVE COMPARISON of research methodologies, mathematical objectives, or training strategies.
-MANDATORY: Detail specific objectives (e.g., Loss functions, physical constraints, or experimental protocols) and how this paper's approach differs from the competitors.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the methodology comparison for each competitor.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
-
-### CONTEXT ###
-Original: {state['summary'][:2000]}
-Related Research: {combined}
-
-## 2.2 Methodology & Objectives
-(Deep methodological and strategic comparison)
+## 2.1 Problem & Objective
 """
-    state["comp_opt"] = llm(prompt)
+    state["comp_problem"] = llm(prompt, disable_failsafe=True)
     return state
 
-def node_compare_bench(state):
+def node_compare_method(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 2.3 Benchmark Parity
-CONSTRAINTS: Provide a GRANULAR NUMERICAL COMPARISON. Compare this paper's performance on SHARED DATASETS (e.g., COD10K, NC4K) vs. each related paper.
-MANDATORY: Use specific decimal scores. Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the benchmark comparison for each competitor.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If numerical data is missing, simply state 'Not Reported'. Stay strictly analytical.
+ROLE: Technical Reviewer | TASK: 2.2 Methodology & Approach
+CONSTRAINTS: How is the problem solved? Compare the approaches used (e.g., Algorithms, Experiments, Theoretical models, Surveys) against the related works.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
 Related Research: {combined}
 
-## 2.3 Benchmark Parity
-(Numerical comparison and fairness analysis)"""
-    state["comp_bench"] = llm(prompt)
+## 2.2 Methodology & Approach
+"""
+    state["comp_method"] = llm(prompt, disable_failsafe=True)
     return state
 
-def node_compare_innov(state):
+def node_compare_data(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 2.4 Innovation Uniqueness
-CONSTRAINTS: Provide an EXHAUSTIVE CONCEPTUAL ANALYSIS. Isolate the "First-of-its-kind" novelties versus incremental improvements from prior work. 
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the conceptual innovation vs each competitor.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
+ROLE: Technical Reviewer | TASK: 2.3 Data & Evidence
+CONSTRAINTS: What data is used? Compare the exact evidence, datasets, case studies, or simulations used in this paper versus each related paper.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
 Related Research: {combined}
 
-## 2.4 Innovation Uniqueness
-(Categorical analysis of novelty vs prior art)"""
-    state["comp_innov"] = llm(prompt)
+## 2.3 Data & Evidence
+"""
+    state["comp_data"] = llm(prompt, disable_failsafe=True)
+    return state
+
+def node_compare_results(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 2.4 Results & Findings
+CONSTRAINTS: What did they achieve? Compare the findings, observations, Accuracy rates, or categorical improvements against the related works.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+
+### CONTEXT ###
+Original: {state['summary'][:2000]}
+Related Research: {combined}
+
+## 2.4 Results & Findings
+"""
+    state["comp_results"] = llm(prompt, disable_failsafe=True)
+    return state
+
+def node_compare_eval(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 2.5 Evaluation Method
+CONSTRAINTS: How did they validate results? Compare the validation strategies, metrics, experiments, or proofs used to confirm effectiveness.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+
+### CONTEXT ###
+Original: {state['summary'][:2000]}
+Related Research: {combined}
+
+## 2.5 Evaluation Method
+"""
+    state["comp_eval"] = llm(prompt, disable_failsafe=True)
     return state
 
 def node_improve(state):
@@ -552,17 +569,19 @@ def build_graphs():
     g2 = StateGraph(PaperState)
     g2.add_node("arxiv_search", node_arxiv_search)
     g2.add_node("compare_table", node_compare_table)
-    g2.add_node("compare_arch", node_compare_arch)
-    g2.add_node("compare_opt", node_compare_opt)
-    g2.add_node("compare_bench", node_compare_bench)
-    g2.add_node("compare_innov", node_compare_innov)
+    g2.add_node("compare_problem", node_compare_problem)
+    g2.add_node("compare_method", node_compare_method)
+    g2.add_node("compare_data", node_compare_data)
+    g2.add_node("compare_results", node_compare_results)
+    g2.add_node("compare_eval", node_compare_eval)
     g2.set_entry_point("arxiv_search")
     g2.add_edge("arxiv_search", "compare_table")
-    g2.add_edge("compare_table", "compare_arch")
-    g2.add_edge("compare_arch", "compare_opt")
-    g2.add_edge("compare_opt", "compare_bench")
-    g2.add_edge("compare_bench", "compare_innov")
-    g2.add_edge("compare_innov", END)
+    g2.add_edge("compare_table", "compare_problem")
+    g2.add_edge("compare_problem", "compare_method")
+    g2.add_edge("compare_method", "compare_data")
+    g2.add_edge("compare_data", "compare_results")
+    g2.add_edge("compare_results", "compare_eval")
+    g2.add_edge("compare_eval", END)
 
     g3 = StateGraph(PaperState)
     g3.add_node("improve", node_improve)
@@ -609,7 +628,7 @@ st.caption("Upload a PDF → Get AI Summary, Q&A, Multi-Engine Comparison, and I
 
 # Initialize session state
 for key in ["summary", "vision", "topic", "papers", "comparison", "comparison_table",
-            "comp_arch", "comp_opt", "comp_bench", "comp_innov",
+            "comp_problem", "comp_method", "comp_data", "comp_results", "comp_eval",
             "improvements", "edits", "text", "images", "chunks", "qa_history"]:
     if key not in st.session_state:
         st.session_state[key] = [] if key in ["vision", "topic", "papers", "edits",
@@ -712,10 +731,11 @@ with tab3:
                 result = compare_graph.invoke(init)
                 st.session_state.papers = result["papers"]
                 st.session_state.comparison_table = result["comparison_table"]
-                st.session_state.comp_arch = result["comp_arch"]
-                st.session_state.comp_opt = result["comp_opt"]
-                st.session_state.comp_bench = result["comp_bench"]
-                st.session_state.comp_innov = result["comp_innov"]
+                st.session_state.comp_problem = result["comp_problem"]
+                st.session_state.comp_method = result["comp_method"]
+                st.session_state.comp_data = result["comp_data"]
+                st.session_state.comp_results = result["comp_results"]
+                st.session_state.comp_eval = result["comp_eval"]
 
         if st.session_state.papers:
             st.subheader("📚 Related Papers Found")
@@ -734,37 +754,42 @@ with tab3:
             st.subheader("📊 1. Quantitative Comparison Table")
             st.markdown(st.session_state.comparison_table)
 
-        if st.session_state.comp_arch:
+        if st.session_state.comp_problem:
             st.divider()
             st.subheader("📊 2. Technical Deep Dive")
-            st.markdown("### 2.1 Architectural Delta")
-            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.1[^\n]*\n*', '', st.session_state.comp_arch, flags=re.IGNORECASE).strip())
+            st.markdown("### 2.1 Problem & Objective")
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.1[^\n]*\n*', '', st.session_state.comp_problem, flags=re.IGNORECASE).strip())
             
-        if st.session_state.comp_opt:
-            st.markdown("### 2.2 Methodology & Objectives")
-            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.2[^\n]*\n*', '', st.session_state.comp_opt, flags=re.IGNORECASE).strip())
+        if st.session_state.comp_method:
+            st.markdown("### 2.2 Methodology & Approach")
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.2[^\n]*\n*', '', st.session_state.comp_method, flags=re.IGNORECASE).strip())
             
-        if st.session_state.comp_bench:
-            st.markdown("### 2.3 Benchmark Parity")
-            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.3[^\n]*\n*', '', st.session_state.comp_bench, flags=re.IGNORECASE).strip())
+        if st.session_state.comp_data:
+            st.markdown("### 2.3 Data & Evidence")
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.3[^\n]*\n*', '', st.session_state.comp_data, flags=re.IGNORECASE).strip())
             
-        if st.session_state.comp_innov:
-            st.markdown("### 2.4 Innovation Uniqueness")
-            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.4[^\n]*\n*', '', st.session_state.comp_innov, flags=re.IGNORECASE).strip())
+        if st.session_state.comp_results:
+            st.markdown("### 2.4 Results & Findings")
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.4[^\n]*\n*', '', st.session_state.comp_results, flags=re.IGNORECASE).strip())
+            
+        if st.session_state.comp_eval:
+            st.markdown("### 2.5 Evaluation Method")
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.5[^\n]*\n*', '', st.session_state.comp_eval, flags=re.IGNORECASE).strip())
 
 # --- TAB 4: Improve ---
 with tab4:
-    if not st.session_state.comp_arch:
+    if not st.session_state.comp_problem:
         st.info("Run the Comparative Study first (Compare tab).")
     else:
         if st.button("✏️ Analyze & Rewrite Sections", type="primary"):
             with st.spinner("Identifying weak sections & generating rewrites..."):
                 # Combine modular results for the improvement engine
                 combined_comparison = f"""
-                {st.session_state.comp_arch}
-                {st.session_state.comp_opt}
-                {st.session_state.comp_bench}
-                {st.session_state.comp_innov}
+                {st.session_state.comp_problem}
+                {st.session_state.comp_method}
+                {st.session_state.comp_data}
+                {st.session_state.comp_results}
+                {st.session_state.comp_eval}
                 """
                 init = {
                     "text": st.session_state.text, "images": [], "chunks": [],
