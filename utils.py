@@ -94,6 +94,16 @@ def parse_pdf(file_path):
         for img in page.get_images(full=True):
             xref = img[0]
             base_image = doc.extract_image(xref)
+            
+            # Smart filtering: prevent logos, banners, and icons from being processed
+            w = base_image.get("width", 0)
+            h = base_image.get("height", 0)
+            
+            if w < 300 or h < 300: # Skip small university logos and icons
+                continue
+            if w / max(h, 1) > 4 or h / max(w, 1) > 4: # Skip wide headers like "Published online:..."
+                continue
+                
             img_path = os.path.join(tempfile.gettempdir(), f"temp_{xref}.png")
             with open(img_path, "wb") as f:
                 f.write(base_image["image"])
