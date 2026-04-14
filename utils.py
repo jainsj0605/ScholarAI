@@ -27,7 +27,7 @@ def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000, disable_fa
         res = client.chat.completions.create(
             model=current_model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=2000, # Reduced to leave room for input tokens
+            max_tokens=4000, # Increased strictly to allow for heavy multi-paragraph generations
             temperature=0.3  # Slightly lower for more precision
         )
         content = res.choices[0].message.content
@@ -51,7 +51,7 @@ def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000, disable_fa
                 res = client.chat.completions.create(
                     model=FALLBACK_MODEL,
                     messages=[{"role": "user", "content": prompt[:fallback_limit]}],
-                    max_tokens=2000,
+                    max_tokens=4000,
                     temperature=0.3
                 )
                 return res.choices[0].message.content
