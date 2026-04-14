@@ -87,7 +87,7 @@ def encode_image(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000) -> str:
+def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000, disable_failsafe: bool = False) -> str:
     # Truncate prompt to prevent 413 or TPM errors
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[Context truncated due to size limits...]"
@@ -107,7 +107,7 @@ def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000) -> str:
         content = re.sub(r'^### .* ###', '', content, flags=re.MULTILINE).strip()
         
         # Hard Failsafe: Ensure it ends on a full sentence
-        if not content.strip().endswith(('.', '!', '?', ']', '\"', '\'')):
+        if not disable_failsafe and not content.strip().endswith(('.', '!', '?', ']', '\"', '\'')):
             last_period = max(content.rfind('.'), content.rfind('!'), content.rfind('?'))
             if last_period != -1:
                 content = content[:last_period + 1] + "\n\n[Section complete]"
@@ -380,16 +380,15 @@ Context: {combined}
 ## 1. Quantitative Comparison Table
 | Architecture | Dataset | Accuracy/mIoU/F1 | Parameters |
 | :--- | :--- | :--- | :--- |"""
-    state["comparison_table"] = llm(prompt)
+    state["comparison_table"] = llm(prompt, disable_failsafe=True)
     return state
 
 def node_compare_arch(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2.1 Architectural Delta
-CONSTRAINTS: Provide a MASSIVE TECHNICAL DEEP DIVE. Avoid brief bullets.
-Identify exactly how the original paper's architecture (backbone, attention, fusion, etc.) differs from each related work.
-MANDATORY: Mention related papers by title or year in your analysis.
+CONSTRAINTS: Provide a MASSIVE TECHNICAL DEEP DIVE. Identify exactly how the original paper's architecture (backbone, attention, fusion, etc.) differs from each related work.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the architectural comparison for each competitor.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
@@ -406,7 +405,7 @@ def node_compare_opt(state):
 ROLE: Technical Reviewer | TASK: 2.2 Methodology & Objectives
 CONSTRAINTS: Provide an EXHAUSTIVE COMPARISON of research methodologies, mathematical objectives, or training strategies.
 MANDATORY: Detail specific objectives (e.g., Loss functions, physical constraints, or experimental protocols) and how this paper's approach differs from the competitors.
-MANDATORY: Cite related papers by title/year.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the methodology comparison for each competitor.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
@@ -422,9 +421,8 @@ def node_compare_bench(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2.3 Benchmark Parity
-CONSTRAINTS: Provide a GRANULAR NUMERICAL COMPARISON.
-Compare this paper's performance on SHARED DATASETS (e.g., COD10K, NC4K) vs. each related paper.
-MANDATORY: Use specific decimal scores and cite the papers providing those scores.
+CONSTRAINTS: Provide a GRANULAR NUMERICAL COMPARISON. Compare this paper's performance on SHARED DATASETS (e.g., COD10K, NC4K) vs. each related paper.
+MANDATORY: Use specific decimal scores. Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the benchmark comparison for each competitor.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
@@ -439,9 +437,8 @@ def node_compare_innov(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2.4 Innovation Uniqueness
-CONSTRAINTS: Provide an EXHAUSTIVE CONCEPTUAL ANALYSIS.
-Isolate the "First-of-its-kind" novelties versus incremental improvements from prior work. 
-MANDATORY: Explicitly contrast against the specific related papers provided.
+CONSTRAINTS: Provide an EXHAUSTIVE CONCEPTUAL ANALYSIS. Isolate the "First-of-its-kind" novelties versus incremental improvements from prior work. 
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the conceptual innovation vs each competitor.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
