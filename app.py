@@ -514,13 +514,12 @@ CONSTRAINTS:
 
 ### OUTPUT ###
 """
-    raw = llm(prompt)
+    raw = llm(prompt, disable_failsafe=True)
     try:
-        raw = re.sub(r'```(?:json)?', '', raw).strip()
-        m = re.search(r'\[.*\]', raw, re.DOTALL)
+        raw_clean = re.sub(r'```(?:json)?', '', raw).strip()
+        m = re.search(r'\[.*\]', raw_clean, re.DOTALL)
         if m:
             edits = json.loads(m.group())
-            # Basic validation to ensure they aren't all the same
             unique_edits = []
             seen_sections = set()
             for ed in edits:
@@ -530,9 +529,9 @@ CONSTRAINTS:
                     seen_sections.add(sec)
             state["edits"] = unique_edits
         else:
-            state["edits"] = []
-    except:
-        state["edits"] = []
+            state["edits"] = [{"section": "JSON Formatting Error", "original": "The AI failed to format the response as a JSON array.", "rewritten": raw_clean}]
+    except Exception as e:
+        state["edits"] = [{"section": "JSON Parse Error", "original": f"Exception: {str(e)}", "rewritten": raw}]
     return state
 
 def node_qa(state):
