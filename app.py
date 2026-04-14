@@ -309,7 +309,7 @@ def node_summarize(state):
 ROLE: Technical Reviewer
 CONSTRAINTS: Provide a MASSIVE TECHNICAL ANALYSIS. Avoid brief bullet points.
 Use exhaustive analytical paragraphs to describe architecture, methodology, and theoretical foundations.
-MANDATORY: Detail specific decimal scores and mathematical components found in the text.
+MANDATORY: If specific decimal scores, benchmarks, or mathematical components are found in the text, you must include them. DO NOT invent or hallucinate metrics, formulas, or scores that are not explicitly stated in the paper.
 
 ## Executive Summary
 (Exhaustive high-level analysis of impact and novelty)
