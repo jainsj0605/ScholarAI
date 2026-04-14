@@ -372,6 +372,7 @@ ROLE: Technical Reviewer
 TASK: Generate a COMPACT QUANTITATIVE COMPARISON TABLE.
 METRICS: Architecture, Dataset, Accuracy/mIoU/F1, Parameters.
 LIMIT: Max 5 rows. Return ONLY the table.
+MANDATORY: Do not include ANY text outside of the table itself. If quantitative data is missing, populate the cell with 'N/A'. DO NOT generate hypothetical numbers, illustrative examples, or meta-commentary about missing data.
 
 ### CONTEXT ###
 Original Summary: {state['summary'][:1500]}
@@ -389,6 +390,7 @@ def node_compare_arch(state):
 ROLE: Technical Reviewer | TASK: 2.1 Architectural Delta
 CONSTRAINTS: Provide a MASSIVE TECHNICAL DEEP DIVE. Identify exactly how the original paper's architecture (backbone, attention, fusion, etc.) differs from each related work.
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the architectural comparison for each competitor.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
@@ -406,6 +408,7 @@ ROLE: Technical Reviewer | TASK: 2.2 Methodology & Objectives
 CONSTRAINTS: Provide an EXHAUSTIVE COMPARISON of research methodologies, mathematical objectives, or training strategies.
 MANDATORY: Detail specific objectives (e.g., Loss functions, physical constraints, or experimental protocols) and how this paper's approach differs from the competitors.
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the methodology comparison for each competitor.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
@@ -423,6 +426,7 @@ def node_compare_bench(state):
 ROLE: Technical Reviewer | TASK: 2.3 Benchmark Parity
 CONSTRAINTS: Provide a GRANULAR NUMERICAL COMPARISON. Compare this paper's performance on SHARED DATASETS (e.g., COD10K, NC4K) vs. each related paper.
 MANDATORY: Use specific decimal scores. Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the benchmark comparison for each competitor.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If numerical data is missing, simply state 'Not Reported'. Stay strictly analytical.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
@@ -439,6 +443,7 @@ def node_compare_innov(state):
 ROLE: Technical Reviewer | TASK: 2.4 Innovation Uniqueness
 CONSTRAINTS: Provide an EXHAUSTIVE CONCEPTUAL ANALYSIS. Isolate the "First-of-its-kind" novelties versus incremental improvements from prior work. 
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the conceptual innovation vs each competitor.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
 
 ### CONTEXT ###
 Original: {state['summary'][:2000]}
