@@ -662,6 +662,8 @@ with tab1:
             st.subheader("🖼️ Figure Analysis")
             for i, v in enumerate(st.session_state.vision):
                 with st.expander(f"Figure {i+1}", expanded=(i == 0)):
+                    if i < len(st.session_state.images):
+                        st.image(st.session_state.images[i], width=500)
                     st.markdown(v)
     else:
         st.info("👈 Upload a PDF in the sidebar to get started.")
