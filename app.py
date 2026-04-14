@@ -168,6 +168,11 @@ def parse_pdf(file_path):
         for img in page.get_images(full=True):
             xref = img[0]
             base_image = doc.extract_image(xref)
+            
+            # Filter out tiny images (like logos, inline UI icons, or author photos)
+            if base_image.get("width", 0) < 250 or base_image.get("height", 0) < 250:
+                continue
+                
             img_path = os.path.join(tempfile.gettempdir(), f"temp_{xref}.png")
             with open(img_path, "wb") as f:
                 f.write(base_image["image"])
