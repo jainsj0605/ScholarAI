@@ -1,0 +1,310 @@
+import re
+import json
+from typing import TypedDict, List, Optional
+import streamlit as st
+from langgraph.graph import StateGraph, END
+
+from config import client, VISION_MODEL
+from utils import llm, distill_context, retrieve, encode_image
+from api_search import search_arxiv, search_crossref, search_openalex, search_semantic_scholar
+
+class PaperState(TypedDict):
+    text: str
+    images: List[str]
+    chunks: List[str]
+    summary: str
+    vision: List[str]
+    topic: List[str]
+    papers: List[dict]
+    comparison: str
+    comp_problem: str
+    comp_method: str
+    comp_data: str
+    comp_results: str
+    comp_eval: str
+    improvements: str
+    edits: List[dict]
+    query: str
+    answer: str
+    error: Optional[str]
+
+def node_summarize(state):
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer
+CONSTRAINTS: Provide a MASSIVE TECHNICAL ANALYSIS. Avoid brief bullet points.
+Use exhaustive analytical paragraphs to describe architecture, methodology, and theoretical foundations.
+MANDATORY: If specific decimal scores, benchmarks, or mathematical components are found in the text, you must include them. DO NOT invent or hallucinate metrics, formulas, or scores that are not explicitly stated in the paper.
+
+## Executive Summary
+(Exhaustive high-level analysis of impact and novelty)
+
+## Problem & Motivation
+(Deep dive into the research gap and dataset challenges)
+
+## Architecture & Methodology
+(Granular description of backbones, attention mechanisms, loss functions, and inference blocks)
+
+## Theoretical Contributions
+(Detailed analysis of novel theorems, proofs, or conceptual shifts)
+
+## Results & Benchmarks
+(Exhaustive numerical results on every dataset mentioned, including delta comparison)
+
+## Limitations
+(Technical constraints, edge cases, and hardware requirements)
+
+### PAPER TEXT DATA ###
+{state['text'][:8000]}
+"""
+    state["summary"] = llm(prompt)
+    return state
+
+def analyze_single_image(img_path):
+    try:
+        b64 = encode_image(img_path)
+        res = client.chat.completions.create(
+            model=VISION_MODEL,
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": "Analyze this research paper figure:\n- **Type**: What kind?\n- **Key Insights**: What does it show?\n- **Importance**: Why significant?"},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+            ]}]
+        )
+        return res.choices[0].message.content
+    except Exception as e:
+        return f"Vision error: {e}"
+
+def node_extract_topic(state):
+    prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
+    state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
+    return state
+
+def node_arxiv_search(state):
+    query = state["topic"]
+    if not query or "Error:" in query:
+        state["papers"] = []
+        return state
+        
+    arxiv_p = search_arxiv(query)
+    crossref_p = search_crossref(query)
+    openalex_p = search_openalex(query)
+    semantic_p = search_semantic_scholar(query)
+    
+    all_p = crossref_p + openalex_p + semantic_p + arxiv_p
+    unique = []
+    seen = set()
+    for p in all_p:
+        # Strip failed abstracts so AI doesn't hallucinate "Not Reported"
+        invalid_markers = ["no abstract", "not available", "no abstract available"]
+        if not p.get("summary") or len(p["summary"]) < 100 or any(m in p["summary"].lower() for m in invalid_markers):
+            continue
+            
+        slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
+        if slug and slug not in seen:
+            unique.append(p)
+            seen.add(slug)
+    state["papers"] = unique[:6]
+    return state
+
+
+def node_compare_problem(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 1. Problem & Objective
+CONSTRAINTS: What is the paper trying to solve? Compare the primary objective facing the original paper versus the related research (e.g., Engineering system design, Medical disease treatment, Economics policy, etc.).
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the comparison.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
+
+### CONTEXT ###
+Original: {state['summary'][:2000]}
+Related Research: {combined}
+
+## 1. Problem & Objective
+"""
+    state["comp_problem"] = llm(prompt, disable_failsafe=True)
+    return state
+
+def node_compare_method(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 2. Methodology & Approach
+CONSTRAINTS: How is the problem solved? Compare the approaches used (e.g., Algorithms, Experiments, Theoretical models, Surveys) against the related works.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+
+### CONTEXT ###
+Original: {state['summary'][:2000]}
+Related Research: {combined}
+
+## 2. Methodology & Approach
+"""
+    state["comp_method"] = llm(prompt, disable_failsafe=True)
+    return state
+
+def node_compare_data(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 3. Data & Evidence
+CONSTRAINTS: What data is used? Compare the exact evidence, datasets, case studies, or simulations used in this paper versus each related paper.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+
+### CONTEXT ###
+Original: {state['summary'][:2000]}
+Related Research: {combined}
+
+## 3. Data & Evidence
+"""
+    state["comp_data"] = llm(prompt, disable_failsafe=True)
+    return state
+
+def node_compare_results(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 4. Results & Findings
+CONSTRAINTS: What did they achieve? Compare the findings, observations, Accuracy rates, or categorical improvements against the related works.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+
+### CONTEXT ###
+Original: {state['summary'][:2000]}
+Related Research: {combined}
+
+## 4. Results & Findings
+"""
+    state["comp_results"] = llm(prompt, disable_failsafe=True)
+    return state
+
+def node_compare_eval(state):
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Reviewer | TASK: 5. Evaluation Method
+CONSTRAINTS: How did they validate results? Compare the validation strategies, metrics, experiments, or proofs used to confirm effectiveness.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
+MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+
+### CONTEXT ###
+Original: {state['summary'][:2000]}
+Related Research: {combined}
+
+## 5. Evaluation Method
+"""
+    state["comp_eval"] = llm(prompt, disable_failsafe=True)
+    return state
+
+def node_improve(state):
+    # DISTILL context to avoid TPM limits and focus the LLM
+    important_context = distill_context(state['comparison'])
+    
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Senior Technical Editor
+TASK: Identify exactly 3-5 SPECIFIC weak sections in the paper that need technical improvement.
+
+CONSTRAINTS:
+- AVOID GENERIC FEEDBACK (e.g., "improve clarity", "add more detail").
+- FOCUS ON TECHNICAL GAPS: Lack of specific architectural justifications, missing benchmark comparisons, weak methodological grounding (Optimization, Loss functions, or core Research Objectives), or incremental novelty vs total innovation.
+- REFERENCE the Comparative Analysis directly (Architectural, Methodology/Optimization, Benchmarks, Innovation).
+- Start your response DIRECTLY with '## Improvement Strategy'.
+
+### DISTILLED COMPARATIVE CONTEXT ###
+{important_context}
+
+### RELEVANT PAPER SNIPPETS ###
+{state['text'][:5000]}
+
+## Improvement Strategy
+"""
+    state["improvements"] = llm(prompt)
+    return state
+
+def node_rewrite(state):
+    if "Error" in state["improvements"]:
+        state["edits"] = []
+        return state
+
+    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
+ROLE: Technical Author
+TASK: Rewrite the weak sections identified to address technical gaps (architectural detail, benchmark context).
+CONSTRAINTS:
+- Return a VALID JSON array ONLY.
+- Format: [{{"section": "Precise Section Name", "original": "Original text snippet", "rewritten": "Improved technical text"}}]
+- Ensure section names are unique and match the paper's structure.
+- Maximum 5 rewrites.
+
+### ANALYSIS OF WEAKNESSES ###
+{state['improvements']}
+
+### FULL PAPER CONTEXT (TRUNCATED) ###
+{state['text'][:6000]}
+
+### OUTPUT ###
+"""
+    raw = llm(prompt, disable_failsafe=True)
+    try:
+        raw_clean = re.sub(r'```(?:json)?', '', raw).strip()
+        m = re.search(r'\[.*\]', raw_clean, re.DOTALL)
+        if m:
+            edits = json.loads(m.group())
+            unique_edits = []
+            seen_sections = set()
+            for ed in edits:
+                sec = ed.get("section", "General")
+                if sec not in seen_sections:
+                    unique_edits.append(ed)
+                    seen_sections.add(sec)
+            state["edits"] = unique_edits
+        else:
+            state["edits"] = [{"section": "JSON Formatting Error", "original": "The AI failed to format the response as a JSON array.", "rewritten": raw_clean}]
+    except Exception as e:
+        state["edits"] = [{"section": "JSON Parse Error", "original": f"Exception: {str(e)}", "rewritten": raw}]
+    return state
+
+def node_qa(state):
+    chunks = retrieve(state["query"])
+    if not chunks:
+        state["answer"] = "No document loaded."
+        return state
+    context = "\n".join(chunks)
+    prompt = f"""Answer based on paper context using markdown.
+Context: {context}
+Question: {state['query']}
+Answer:"""
+    state["answer"] = llm(prompt)
+    return state
+
+@st.cache_resource
+def build_graphs():
+    g1 = StateGraph(PaperState)
+    g1.add_node("summarize", node_summarize)
+    g1.add_node("extract_topic", node_extract_topic)
+    g1.set_entry_point("summarize")
+    g1.add_edge("summarize", "extract_topic")
+    g1.add_edge("extract_topic", END)
+
+    g2 = StateGraph(PaperState)
+    g2.add_node("arxiv_search", node_arxiv_search)
+    g2.add_node("compare_problem", node_compare_problem)
+    g2.add_node("compare_method", node_compare_method)
+    g2.add_node("compare_data", node_compare_data)
+    g2.add_node("compare_results", node_compare_results)
+    g2.add_node("compare_eval", node_compare_eval)
+    g2.set_entry_point("arxiv_search")
+    g2.add_edge("arxiv_search", "compare_problem")
+    g2.add_edge("compare_problem", "compare_method")
+    g2.add_edge("compare_method", "compare_data")
+    g2.add_edge("compare_data", "compare_results")
+    g2.add_edge("compare_results", "compare_eval")
+    g2.add_edge("compare_eval", END)
+
+    g3 = StateGraph(PaperState)
+    g3.add_node("improve", node_improve)
+    g3.add_node("rewrite", node_rewrite)
+    g3.set_entry_point("improve")
+    g3.add_edge("improve", "rewrite")
+    g3.add_edge("rewrite", END)
+
+    g4 = StateGraph(PaperState)
+    g4.add_node("qa", node_qa)
+    g4.set_entry_point("qa")
+    g4.add_edge("qa", END)
+
+    return g1.compile(), g2.compile(), g3.compile(), g4.compile()
