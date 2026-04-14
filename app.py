@@ -736,19 +736,19 @@ with tab3:
             st.divider()
             st.subheader("📊 2. Technical Deep Dive")
             st.markdown("### 2.1 Architectural Delta")
-            st.markdown(st.session_state.comp_arch)
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.1[^\n]*\n*', '', st.session_state.comp_arch, flags=re.IGNORECASE).strip())
             
         if st.session_state.comp_opt:
             st.markdown("### 2.2 Methodology & Objectives")
-            st.markdown(st.session_state.comp_opt)
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.2[^\n]*\n*', '', st.session_state.comp_opt, flags=re.IGNORECASE).strip())
             
         if st.session_state.comp_bench:
             st.markdown("### 2.3 Benchmark Parity")
-            st.markdown(st.session_state.comp_bench)
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.3[^\n]*\n*', '', st.session_state.comp_bench, flags=re.IGNORECASE).strip())
             
         if st.session_state.comp_innov:
             st.markdown("### 2.4 Innovation Uniqueness")
-            st.markdown(st.session_state.comp_innov)
+            st.markdown(re.sub(r'^\s*(?:#+\s*)?2\.4[^\n]*\n*', '', st.session_state.comp_innov, flags=re.IGNORECASE).strip())
 
 # --- TAB 4: Improve ---
 with tab4:
