@@ -650,7 +650,7 @@ with st.sidebar:
         st.info(f"**Topic:** {topic_str}")
 
 # --- MAIN TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Summary", "💬 Q&A", "🔍 Compare", "✏️ Improve", "🖼️ Figures"])
+tab1, tab5, tab2, tab3, tab4 = st.tabs(["📋 Summary", "🖼️ Figures", "💬 Q&A", "🔍 Compare", "✏️ Improve"])
 
 # --- TAB 1: Summary ---
 with tab1:
