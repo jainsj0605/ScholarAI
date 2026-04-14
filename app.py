@@ -220,13 +220,24 @@ def search_openalex(query):
             data = res.json()
             papers = []
             for item in data.get("results", []):
-                papers.append({
+                p_dict = {
                     "title": item.get("display_name", "Untitled"),
-                    "summary": (item.get("abstract_inverted_index") or "No abstract.").strip()[:500],
                     "year": str(item.get("publication_year", "")),
                     "link": item.get("doi") or f"https://openalex.org/{item.get('id').split('/')[-1]}",
                     "venue": (item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex")
-                })
+                }
+                
+                # Reconstruct OpenAlex inverted index abstract
+                idx = item.get("abstract_inverted_index")
+                if idx:
+                    words = []
+                    for word, pos in idx.items():
+                        for p in pos: words.append((p, word))
+                    p_dict["summary"] = " ".join([w[1] for w in sorted(words)])[:1500]
+                else:
+                    p_dict["summary"] = "No abstract available."
+                    
+                papers.append(p_dict)
             return papers
     except: pass
     return []
@@ -358,6 +369,11 @@ def node_arxiv_search(state):
     unique = []
     seen = set()
     for p in all_p:
+        # Strip failed abstracts so AI doesn't hallucinate "Not Reported"
+        invalid_markers = ["no abstract", "not available", "no abstract available"]
+        if not p.get("summary") or len(p["summary"]) < 100 or any(m in p["summary"].lower() for m in invalid_markers):
+            continue
+            
         slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
         if slug and slug not in seen:
             unique.append(p)
