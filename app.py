@@ -168,11 +168,6 @@ def parse_pdf(file_path):
         for img in page.get_images(full=True):
             xref = img[0]
             base_image = doc.extract_image(xref)
-            
-            # Filter out tiny images (like logos, inline UI icons, or author photos)
-            if base_image.get("width", 0) < 250 or base_image.get("height", 0) < 250:
-                continue
-                
             img_path = os.path.join(tempfile.gettempdir(), f"temp_{xref}.png")
             with open(img_path, "wb") as f:
                 f.write(base_image["image"])
@@ -329,23 +324,19 @@ MANDATORY: Detail specific decimal scores and mathematical components found in t
     state["summary"] = llm(prompt)
     return state
 
-def node_vision(state):
-    results = []
-    for img_path in state["images"][:3]:
-        try:
-            b64 = encode_image(img_path)
-            res = client.chat.completions.create(
-                model=VISION_MODEL,
-                messages=[{"role": "user", "content": [
-                    {"type": "text", "text": "Analyze this research paper figure:\n- **Type**: What kind?\n- **Key Insights**: What does it show?\n- **Importance**: Why significant?"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
-                ]}]
-            )
-            results.append(res.choices[0].message.content)
-        except Exception as e:
-            results.append(f"Vision error: {e}")
-    state["vision"] = results
-    return state
+def analyze_single_image(img_path):
+    try:
+        b64 = encode_image(img_path)
+        res = client.chat.completions.create(
+            model=VISION_MODEL,
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": "Analyze this research paper figure:\n- **Type**: What kind?\n- **Key Insights**: What does it show?\n- **Importance**: Why significant?"},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+            ]}]
+        )
+        return res.choices[0].message.content
+    except Exception as e:
+        return f"Vision error: {e}"
 
 def node_extract_topic(state):
     prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
@@ -548,11 +539,9 @@ Answer:"""
 def build_graphs():
     g1 = StateGraph(PaperState)
     g1.add_node("summarize", node_summarize)
-    g1.add_node("vision", node_vision)
     g1.add_node("extract_topic", node_extract_topic)
     g1.set_entry_point("summarize")
-    g1.add_edge("summarize", "vision")
-    g1.add_edge("vision", "extract_topic")
+    g1.add_edge("summarize", "extract_topic")
     g1.add_edge("extract_topic", END)
 
     g2 = StateGraph(PaperState)
@@ -614,12 +603,15 @@ st.title("🔬 ScholarAI: Research Paper Helper")
 st.caption("Upload a PDF → Get AI Summary, Q&A, Multi-Engine Comparison, and Improvements")
 
 # Initialize session state
-for key in ["summary", "vision", "topic", "papers", "comparison", 
+for key in ["summary", "topic", "papers", "comparison", 
             "comp_problem", "comp_method", "comp_data", "comp_results", "comp_eval",
             "improvements", "edits", "text", "images", "chunks", "qa_history"]:
     if key not in st.session_state:
-        st.session_state[key] = [] if key in ["vision", "topic", "papers", "edits",
+        st.session_state[key] = [] if key in ["topic", "papers", "edits",
                                                 "images", "chunks", "qa_history"] else ""
+
+if "vision_dict" not in st.session_state:
+    st.session_state.vision_dict = {}
 
 # --- SIDEBAR: Upload ---
 with st.sidebar:
@@ -648,7 +640,6 @@ with st.sidebar:
             st.session_state.images = images
             st.session_state.chunks = chunks
             st.session_state.summary = result["summary"]
-            st.session_state.vision = result["vision"]
             st.session_state.topic = result["topic"]
             st.session_state.pdf_path = tmp.name
 
@@ -659,20 +650,13 @@ with st.sidebar:
         st.info(f"**Topic:** {topic_str}")
 
 # --- MAIN TABS ---
-tab1, tab2, tab3, tab4 = st.tabs(["📋 Summary", "💬 Q&A", "🔍 Compare", "✏️ Improve"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Summary", "💬 Q&A", "🔍 Compare", "✏️ Improve", "🖼️ Figures"])
 
 # --- TAB 1: Summary ---
 with tab1:
     if st.session_state.summary:
         st.markdown(st.session_state.summary)
-        if st.session_state.vision:
-            st.divider()
-            st.subheader("🖼️ Figure Analysis")
-            for i, v in enumerate(st.session_state.vision):
-                with st.expander(f"Figure {i+1}", expanded=(i == 0)):
-                    if i < len(st.session_state.images):
-                        st.image(st.session_state.images[i], width=500)
-                    st.markdown(v)
+        pass
     else:
         st.info("👈 Upload a PDF in the sidebar to get started.")
 
@@ -809,3 +793,33 @@ with tab4:
                         st.markdown(ed.get("rewritten", ""))
         elif st.session_state.improvements and "Error" not in st.session_state.improvements:
              pass # Removed "No specific technical rewrites" message as requested
+
+# --- TAB 5: Figures ---
+with tab5:
+    if not st.session_state.images:
+        st.info("Upload a paper with figures to analyze them.")
+    else:
+        # Analyze All Button
+        if len(st.session_state.vision_dict) < len(st.session_state.images):
+            if st.button("🚀 Analyze All Figures", type="primary"):
+                for i, img_path in enumerate(st.session_state.images):
+                    if i not in st.session_state.vision_dict:
+                        with st.spinner(f"Analyzing Figure {i+1}...") as sp:
+                            st.session_state.vision_dict[i] = analyze_single_image(img_path)
+                st.rerun()
+                
+        st.divider()
+        
+        # Display Images
+        for i, img_path in enumerate(st.session_state.images):
+            st.subheader(f"Figure {i+1}")
+            st.image(img_path, width=600)
+            
+            if i in st.session_state.vision_dict:
+                st.markdown(st.session_state.vision_dict[i])
+            else:
+                if st.button(f"Analyze Figure {i+1}", key=f"btn_fig_{i}"):
+                    with st.spinner(f"Analyzing Figure {i+1}..."):
+                        st.session_state.vision_dict[i] = analyze_single_image(img_path)
+                    st.rerun()
+            st.divider()
