@@ -91,6 +91,9 @@ def llm(prompt: str, model: str = TEXT_MODEL, max_chars: int = 24000, disable_fa
     # Truncate prompt to prevent 413 or TPM errors
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[Context truncated due to size limits...]"
+        
+    # Enforce Streamlit Math Rendering
+    prompt += "\n\nMANDATORY MATH RULE: Use strictly '$$' for block equations and '$' for inline. NEVER use '\\[' or '\\]'."
     
     current_model = model
     try:
