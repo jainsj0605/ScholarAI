@@ -234,24 +234,29 @@ with tab5:
         # Analyze All Button
         if len(st.session_state.vision_dict) < len(st.session_state.images):
             if st.button("🚀 Analyze All Figures", type="primary"):
-                for i, img_path in enumerate(st.session_state.images):
+                for i, fig_dict in enumerate(st.session_state.images):
                     if i not in st.session_state.vision_dict:
                         with st.spinner(f"Analyzing Figure {i+1}...") as sp:
-                            st.session_state.vision_dict[i] = analyze_single_image(img_path)
+                            st.session_state.vision_dict[i] = analyze_single_image(fig_dict)
                 st.rerun()
                 
         st.divider()
         
         # Display Images
-        for i, img_path in enumerate(st.session_state.images):
+        for i, fig_dict in enumerate(st.session_state.images):
             st.subheader(f"Figure {i+1}")
-            st.image(img_path, width=600)
+            
+            # Show the context and image
+            if fig_dict.get("caption"):
+                st.caption(f"**Extracted Caption:** {fig_dict['caption']}")
+            
+            st.image(fig_dict["path"], width=600)
             
             if i in st.session_state.vision_dict:
                 st.markdown(st.session_state.vision_dict[i])
             else:
                 if st.button(f"Analyze Figure {i+1}", key=f"btn_fig_{i}"):
                     with st.spinner(f"Analyzing Figure {i+1}..."):
-                        st.session_state.vision_dict[i] = analyze_single_image(img_path)
+                        st.session_state.vision_dict[i] = analyze_single_image(fig_dict)
                     st.rerun()
             st.divider()
