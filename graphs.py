@@ -5,7 +5,7 @@ import streamlit as st
 from langgraph.graph import StateGraph, END
 
 from config import client, VISION_MODEL
-from utils import llm, distill_context, retrieve, encode_image
+from utils import llm, distill_context, retrieve, encode_image, store_figure_description
 from api_search import search_arxiv, search_crossref, search_openalex, search_semantic_scholar
 
 class PaperState(TypedDict):
@@ -59,17 +59,74 @@ MANDATORY: If specific decimal scores, benchmarks, or mathematical components ar
     state["summary"] = llm(prompt)
     return state
 
-def analyze_single_image(img_path):
+def analyze_single_image(figure: dict) -> str:
+    """
+    Analyzes a research figure with full context grounding.
+    Accepts a figure dict: {path, caption, page_num, context, figure_index}
+    Stores the AI description into FAISS for Q&A retrieval.
+    """
+    if isinstance(figure, str):
+        # Fallback for cached sessions
+        img_path = figure
+        caption = ""
+        context = ""
+        page_num = "?"
+        figure_index = "?"
+    else:
+        img_path = figure.get("path")
+        caption = figure.get("caption", "").strip()
+        page_num = figure.get("page_num", "?")
+        context = figure.get("context", "")[:1200]
+        figure_index = figure.get("figure_index", "?")
+
+    # Build contextual text block for the prompt
+    context_block = ""
+    if caption:
+        context_block += f"**Figure Caption (extracted from paper):** {caption}\n\n"
+    if context:
+        context_block += f"**Surrounding Paragraph Text (±100 words from paper):**\n{context}\n\n"
+    if str(page_num) != "?":
+        context_block += f"**Source:** Page {page_num} of the uploaded paper.\n"
+
+    research_prompt = f"""You are analyzing Figure {figure_index} from a research paper.
+
+You are provided with:
+1. The ACTUAL FIGURE IMAGE (visual)
+2. The CAPTION that the authors wrote for this figure
+3. The SURROUNDING TEXT from the paper where this figure is discussed
+
+Use ALL three sources together to answer the following:
+
+---
+{context_block}
+---
+
+**Your Analysis Tasks:**
+- **Figure Type**: What kind of figure is this? (e.g., Architecture diagram, Results graph, Ablation table, Confusion matrix, etc.)
+- **Key Visual Data**: What specific numbers, labels, axes, or patterns are visible in the image?
+- **Author's Claim**: Based on the caption and surrounding text, what is the author trying to prove with this figure?
+- **Claim Validation**: Does the visual content of the image actually support the author's claim? Are there any inconsistencies or missing details?
+- **Research Significance**: Why is this figure important to the paper's contribution?
+
+Be precise. Quote numbers you can see in the image. Do not hallucinate data not visible in the figure."""
+
     try:
         b64 = encode_image(img_path)
         res = client.chat.completions.create(
             model=VISION_MODEL,
             messages=[{"role": "user", "content": [
-                {"type": "text", "text": "Analyze this research paper figure:\n- **Type**: What kind?\n- **Key Insights**: What does it show?\n- **Importance**: Why significant?"},
+                {"type": "text", "text": research_prompt},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
-            ]}]
+            ]}],
+            max_tokens=1200,
+            temperature=0.2
         )
-        return res.choices[0].message.content
+        description = res.choices[0].message.content
+
+        # Step 4: Store in FAISS so Q&A can retrieve figure content
+        store_figure_description(figure_index, description)
+
+        return description
     except Exception as e:
         return f"Vision error: {e}"
 
