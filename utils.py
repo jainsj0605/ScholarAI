@@ -138,20 +138,7 @@ def parse_pdf(file_path):
             xref = img[0]
             base_image = doc.extract_image(xref)
 
-            # Smart filtering: skip logos, banners, and tiny icons
-            w = base_image.get("width", 0)
-            h = base_image.get("height", 0)
-            if w < 300 or h < 300:
-                continue
-            if w / max(h, 1) > 4 or h / max(w, 1) > 4:
-                continue
-
-            img_bytes = base_image["image"]
-            img_path = os.path.join(tempfile.gettempdir(), f"temp_{xref}.png")
-            with open(img_path, "wb") as f:
-                f.write(img_bytes)
-
-            # Get image bounding rect on the page
+            # Get image bounding rect on the page FIRST for position checks
             img_rect = None
             for item in page.get_image_info():
                 if item.get("xref") == xref:
@@ -160,8 +147,37 @@ def parse_pdf(file_path):
                         img_rect = fitz.Rect(r)
                     break
 
-            # Extract caption and surrounding context
+            # --- FILTER 1: Size check ---
+            w = base_image.get("width", 0)
+            h = base_image.get("height", 0)
+            if w < 200 or h < 200:
+                continue
+
+            # --- FILTER 2: Aspect ratio check ---
+            if w / max(h, 1) > 4 or h / max(w, 1) > 4:
+                continue
+
+            # --- FILTER 3: Position check ---
+            # Skip title page completely
+            if page_num == 1:
+                continue
+            # Skip if image sits in extreme top/bottom header & footer zones
+            if img_rect:
+                page_h = page.rect.height
+                if img_rect.y0 < 0.08 * page_h or img_rect.y1 > 0.92 * page_h:
+                    continue
+
+            # --- FILTER 4: Caption Linguistic check ---
             caption = _extract_caption(page, img_rect) if img_rect else ""
+            if not caption or not re.search(r'\b(fig|figure|tab|table|schema|plot)\b', caption, re.IGNORECASE):
+                continue
+
+            # --- Only Genuine Figures Remain ---
+            img_bytes = base_image["image"]
+            img_path = os.path.join(tempfile.gettempdir(), f"temp_{xref}.png")
+            with open(img_path, "wb") as f:
+                f.write(img_bytes)
+
             context = _get_surrounding_text(full_text, page_text)
 
             fig_index += 1
