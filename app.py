@@ -74,6 +74,7 @@ with st.sidebar:
             st.session_state.summary = result["summary"]
             st.session_state.topic = result["topic"]
             st.session_state.pdf_path = tmp.name
+            st.session_state.vision_dict = {}  # Clear previous paper's figure analysis
 
         st.success("✅ Analysis complete!")
 
