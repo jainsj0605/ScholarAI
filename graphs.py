@@ -147,15 +147,7 @@ Be precise. Do not hallucinate data not visible in the figure."""
         return f"Vision error: {e}"
 
 def node_extract_topic(state):
-    prompt = f"""Extract the core technical topic from this summary. 
-REQUIREMENTS:
-1. Include the specific deployment environment (e.g., LEO, Satellite, 6G).
-2. Use specific technical phrases rather than single words (e.g., use 'Doppler-aware' or 'Power Control' instead of just 'Doppler' or 'Power').
-3. Return 5-6 high-density technical keywords separated by spaces.
-4. Return ONLY the keywords. No preamble, no quotes.
-
-Summary:
-{state['summary']}"""
+    prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
     state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
     return state
 
