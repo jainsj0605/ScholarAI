@@ -194,6 +194,30 @@ def parse_pdf(file_path):
 def chunk_text(text, size=500):
     return [text[i:i+size] for i in range(0, len(text), size)]
 
+def rerank_papers(original_summary, papers, top_k=6):
+    """Uses the embedding model to sort papers by semantic similarity to the original summary."""
+    if not papers:
+        return []
+    
+    # Compute embedding for original summary
+    query_emb = embed_model.encode([original_summary])[0]
+    
+    # Compute embeddings for all candidate summaries
+    candidates = [p.get("summary", "") for p in papers]
+    cand_embs = embed_model.encode(candidates)
+    
+    # Calculate cosine similarity
+    import numpy as np
+    from sklearn.metrics.pairwise import cosine_similarity
+    
+    similarities = cosine_similarity([query_emb], cand_embs)[0]
+    
+    # Pair similarities with papers and sort
+    ranked = sorted(zip(papers, similarities), key=lambda x: x[1], reverse=True)
+    
+    # Return top K unique papers
+    return [r[0] for r in ranked[:top_k]]
+
 def store_embeddings(chunks):
     st.session_state.faiss_index = faiss.IndexFlatL2(dimension)
     st.session_state.documents = []

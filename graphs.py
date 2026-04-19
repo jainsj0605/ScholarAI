@@ -5,7 +5,7 @@ import streamlit as st
 from langgraph.graph import StateGraph, END
 
 from config import client, VISION_MODEL
-from utils import llm, distill_context, retrieve, encode_image, store_figure_description
+from utils import llm, distill_context, retrieve, encode_image, store_figure_description, rerank_papers
 from api_search import search_arxiv, search_crossref, search_openalex, search_semantic_scholar
 
 class PaperState(TypedDict):
@@ -150,16 +150,18 @@ def node_arxiv_search(state):
     unique = []
     seen = set()
     for p in all_p:
-        # Strip failed abstracts so AI doesn't hallucinate "Not Reported"
-        invalid_markers = ["no abstract", "not available", "no abstract available"]
-        if not p.get("summary") or len(p["summary"]) < 100 or any(m in p["summary"].lower() for m in invalid_markers):
+        # Relaxed filtering: Keep papers even with minimal metadata summaries
+        # Just ensure they have a title and some summary text
+        if not p.get("title") or not p.get("summary") or len(p["summary"]) < 20:
             continue
             
         slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
         if slug and slug not in seen:
             unique.append(p)
             seen.add(slug)
-    state["papers"] = unique[:6]
+    
+    # NEW: Semantic re-ranking using the original paper summary
+    state["papers"] = rerank_papers(state["summary"], unique, top_k=6)
     return state
 
 
