@@ -12,3 +12,5 @@ streamlit
 torch
 torchvision
 transformers
+beautifulsoup4
+lxml

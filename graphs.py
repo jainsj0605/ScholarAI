@@ -6,7 +6,7 @@ from langgraph.graph import StateGraph, END
 
 from config import client, VISION_MODEL
 from utils import llm, distill_context, retrieve, encode_image, store_figure_description, rerank_papers
-from api_search import search_arxiv, search_crossref, search_openalex, search_semantic_scholar
+from api_search import search_arxiv, search_crossref, search_openalex, search_semantic_scholar, fetch_arxiv_fulltext, fetch_crossref_fulltext
 
 class PaperState(TypedDict):
     text: str
@@ -152,38 +152,125 @@ def node_extract_topic(state):
     return state
 
 def node_arxiv_search(state):
+    """
+    Engineering-Grade Multi-Engine Academic Search
+    
+    This node implements an ENGINEERING-GRADE SEARCH SYSTEM that:
+    1. Searches across 4 academic databases (ArXiv, Semantic Scholar, OpenAlex, CrossRef)
+    2. Prioritizes prestigious engineering venues (IEEE, Springer, Elsevier, Wiley)
+    3. Applies strict quality filtering (100+ char abstracts)
+    4. Intelligently deduplicates (keeps version with best abstract)
+    5. Enriches with full-text content from ArXiv/CrossRef
+    6. Re-ranks by semantic relevance + venue prestige
+    
+    The system ensures engineering papers like "Amplitude Modulation" from IEEE
+    are prioritized over general noise.
+    """
     query = state["topic"]
     if not query or "Error:" in query:
         state["papers"] = []
         return state
         
-    # Search all sources - they now filter for quality abstracts internally
+    # Search all sources - they filter for quality abstracts internally (Level 1)
     arxiv_p = search_arxiv(query)
     semantic_p = search_semantic_scholar(query)
     openalex_p = search_openalex(query)
     crossref_p = search_crossref(query)
     
-    # Prioritize sources with better abstract quality: ArXiv > Semantic Scholar > OpenAlex > CrossRef
+    # Combine all results
     all_p = arxiv_p + semantic_p + openalex_p + crossref_p
     
-    unique = []
-    seen = set()
+    # LEVEL 2 FILTERING: Engineering-Grade Gatekeeper with Intelligent Deduplication
+    unique = {}  # Use dict to track best version of each paper
+    
     for p in all_p:
-        # Strict filtering: Only keep papers with substantial abstracts (100+ chars)
+        # Special handling for papers flagged as needing full-text
+        if p.get("needs_fulltext"):
+            slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
+            if slug not in unique:
+                unique[slug] = p
+            continue
+        
+        # RULE 1: Must have title and substantial abstract (100+ chars)
         if not p.get("title") or not p.get("summary") or len(p["summary"].strip()) < 100:
             continue
         
-        # Skip generic placeholder text
-        if "not provided" in p["summary"].lower() or "metadata indicates" in p["summary"].lower():
+        # RULE 2: Skip generic placeholder text
+        summary_lower = p["summary"].lower()
+        if "not provided" in summary_lower or "metadata indicates" in summary_lower:
             continue
-            
+        
+        # RULE 3: Skip "no abstract available" messages
+        if "no abstract available" in summary_lower or "abstract not available" in summary_lower:
+            continue
+        
+        # RULE 4: Intelligent Deduplication - Keep version with best abstract/venue
         slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
-        if slug and slug not in seen:
-            unique.append(p)
-            seen.add(slug)
+        if slug:
+            if slug not in unique:
+                unique[slug] = p
+            else:
+                # Keep the version with longer abstract OR higher venue score
+                existing = unique[slug]
+                existing_len = len(existing.get("summary", ""))
+                new_len = len(p.get("summary", ""))
+                existing_score = existing.get("venue_score", 0)
+                new_score = p.get("venue_score", 0)
+                
+                # Prefer: 1) Higher venue score, 2) Longer abstract
+                if new_score > existing_score or (new_score == existing_score and new_len > existing_len):
+                    unique[slug] = p
     
-    # Semantic re-ranking using the original paper summary to get most relevant papers
-    state["papers"] = rerank_papers(state["summary"], unique, top_k=6)
+    # Convert back to list
+    unique_papers = list(unique.values())
+    
+    # ENGINEERING-GRADE RANKING: Combine semantic relevance + venue prestige
+    # First, get semantic scores from rerank_papers
+    ranked_papers = rerank_papers(state["summary"], unique_papers, top_k=15)  # Get more candidates
+    
+    # Apply venue weighting to boost prestigious engineering venues
+    for paper in ranked_papers:
+        venue_score = paper.get("venue_score", 1.0)
+        # Boost papers from IEEE, Springer, Elsevier significantly
+        if venue_score >= 8.0:
+            # Move high-prestige papers to front (multiply by position boost)
+            paper["final_score"] = venue_score * 2.0
+        else:
+            paper["final_score"] = venue_score
+    
+    # Re-sort by final score (venue prestige + semantic relevance)
+    ranked_papers.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+    
+    # Take top 6 after venue-weighted ranking
+    ranked_papers = ranked_papers[:6]
+    
+    # ENHANCEMENT: Fetch full text for ArXiv and CrossRef papers
+    enriched_papers = []
+    for paper in ranked_papers:
+        # Try ArXiv full-text extraction
+        if paper.get("venue") == "ArXiv" and paper.get("link"):
+            full_text = fetch_arxiv_fulltext(paper["link"])
+            if full_text:
+                paper["full_content"] = full_text
+                paper["summary"] = paper["summary"] + "\n\n[Extended Content from ArXiv Paper]: " + full_text[:3000]
+        
+        # Try CrossRef full-text extraction
+        elif paper.get("needs_fulltext") or (paper.get("venue_raw") and any(x in paper.get("venue_raw", "").lower() for x in ["ieee", "springer", "elsevier"])):
+            if paper.get("link"):
+                full_text = fetch_crossref_fulltext(paper["link"])
+                if full_text:
+                    paper["full_content"] = full_text
+                    if "[Abstract pending" in paper["summary"]:
+                        paper["summary"] = full_text[:3000]
+                    else:
+                        paper["summary"] = paper["summary"] + "\n\n[Extended Content from DOI]: " + full_text[:3000]
+                    paper["needs_fulltext"] = False
+                elif paper.get("needs_fulltext"):
+                    continue
+        
+        enriched_papers.append(paper)
+    
+    state["papers"] = enriched_papers
     return state
 
 
