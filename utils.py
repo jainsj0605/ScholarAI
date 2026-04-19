@@ -87,14 +87,19 @@ def distill_context(context: str) -> str:
     return "\n\n".join(distilled)
 
 def _extract_caption(page, img_rect):
-    """Finds the closest text line directly BELOW an image bounding box."""
-    caption_lines = []
-    # Search a region 80pt below the image for caption text
-    search_rect = fitz.Rect(img_rect.x0, img_rect.y1, img_rect.x1, img_rect.y1 + 80)
-    words = page.get_text("words", clip=search_rect)
+    """Finds the closest text line directly BELOW or ABOVE an image bounding box."""
+    # Search a region 100pt below and 40pt above for caption text (sometimes captions are above)
+    search_rect_below = fitz.Rect(img_rect.x0, img_rect.y1, img_rect.x1, img_rect.y1 + 100)
+    search_rect_above = fitz.Rect(img_rect.x0, img_rect.y0 - 40, img_rect.x1, img_rect.y0)
+    
+    words_below = page.get_text("words", clip=search_rect_below)
+    words_above = page.get_text("words", clip=search_rect_above)
+    
+    # Prioritize 'below' text as it's more common for figures
+    words = words_below if words_below else words_above
     if words:
-        caption_lines = [w[4] for w in words]  # word text is index 4
-    return " ".join(caption_lines).strip()
+        return " ".join([w[4] for w in words]).strip()
+    return ""
 
 
 def _get_surrounding_text(full_text, page_text, window_words=100):
@@ -167,9 +172,14 @@ def parse_pdf(file_path):
                 if img_rect.y0 < 0.08 * page_h or img_rect.y1 > 0.92 * page_h:
                     continue
 
-            # --- FILTER 4: Caption Linguistic check ---
+            # --- FILTER 4: Caption Linguistic check (Relaxed) ---
             caption = _extract_caption(page, img_rect) if img_rect else ""
-            if not caption or not re.search(r'\b(fig|figure|tab|table|schema|plot)\b', caption, re.IGNORECASE):
+            
+            # If it's a large image (likely a significant chart), keep it even without 'Fig' label
+            is_large = (w > 400 and h > 400)
+            has_fig_label = re.search(r'\b(fig|figure|tab|table|schema|plot|graph|diagram)\b', caption, re.IGNORECASE)
+            
+            if not is_large and not has_fig_label:
                 continue
 
             # --- Only Genuine Figures Remain ---

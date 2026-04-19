@@ -59,7 +59,19 @@ Analyze the content above and produce a high-density technical summary.
 ## Technical Limitations
 (Hardware requirements, edge cases, and constraints)
 """
-    state["summary"] = llm(prompt)
+    raw_response = llm(prompt)
+    
+    # --- CLEANING SAFETY NET ---
+    # Find the FIRST occurrence of the actual summary header
+    marker = "## Executive Summary"
+    if marker in raw_response:
+        # Strip everything before the marker
+        cleaned = raw_response[raw_response.find(marker):].strip()
+        state["summary"] = cleaned
+    else:
+        # Fallback if AI forgot the header (unlikely)
+        state["summary"] = raw_response
+        
     return state
 
 def analyze_single_image(figure: dict) -> str:
