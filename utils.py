@@ -99,21 +99,35 @@ def _extract_caption(page, img_rect):
     return " ".join(caption_lines).strip()
 
 
-def _get_surrounding_text(full_text, page_text, window_words=100):
-    """Extracts up to window_words words before and after the page's text block."""
-    # Locate this page's text block inside the full document text
-    start_idx = full_text.find(page_text[:200])
-    if start_idx == -1:
-        # Fallback: just return the page text itself (first 600 chars)
-        return page_text[:600]
-    words = full_text.split()
-    # Find approximate word index
-    prefix = full_text[:start_idx]
-    word_start = len(prefix.split())
-    page_words = len(page_text.split())
-    before = words[max(0, word_start - window_words): word_start]
-    after = words[word_start + page_words: word_start + page_words + window_words]
-    return " ".join(before) + " [...] " + " ".join(after)
+def _get_surrounding_text(page, img_rect, window_words=100):
+    """
+    Extracts up to window_words appearing vertically ABOVE and BELOW the image rect.
+    Uses PDF coordinates for precise context grouping.
+    """
+    words = page.get_text("words") # list of [x0, y0, x1, y1, "word", ...]
+    
+    # Sort words by their actual reading order (Y then X) to ensure clean context
+    words.sort(key=lambda w: (w[1], w[0]))
+    
+    above_words = []
+    below_words = []
+    
+    for w in words:
+        word_text = w[4]
+        word_y1 = w[3]
+        word_y0 = w[1]
+        
+        # Word is effectively ABOVE the image if its bottom is above the image's top
+        if word_y1 <= img_rect.y0:
+            above_words.append(word_text)
+        # Word is effectively BELOW the image if its top is below the image's bottom
+        elif word_y0 >= img_rect.y1:
+            below_words.append(word_text)
+            
+    context_above = " ".join(above_words[-window_words:]) # last 100 words above
+    context_below = " ".join(below_words[:window_words])  # first 100 words below
+    
+    return f"[TEXT ABOVE FIGURE]: {context_above}\n\n[TEXT BELOW FIGURE]: {context_below}"
 
 
 def parse_pdf(file_path):
@@ -149,10 +163,10 @@ def parse_pdf(file_path):
                         img_rect = fitz.Rect(r)
                     break
 
-            # --- FILTER 1: Size check ---
+            # --- FILTER 1: Size check (300x300 minimum) ---
             w = base_image.get("width", 0)
             h = base_image.get("height", 0)
-            if w < 200 or h < 200:
+            if w < 300 or h < 300:
                 continue
 
             # --- FILTER 2: Aspect ratio check ---
@@ -169,10 +183,9 @@ def parse_pdf(file_path):
                 if img_rect.y0 < 0.08 * page_h or img_rect.y1 > 0.92 * page_h:
                     continue
 
-            # --- FILTER 4: Caption Linguistic check ---
+            # --- FILTER 4: Caption Extraction (No mandatory labeling) ---
+            # We no longer skip images that don't say "Figure"
             caption = _extract_caption(page, img_rect) if img_rect else ""
-            if not caption or not re.search(r'\b(fig|figure|tab|table|schema|plot)\b', caption, re.IGNORECASE):
-                continue
 
             # --- Only Genuine Figures Remain ---
             img_bytes = base_image["image"]
@@ -180,7 +193,7 @@ def parse_pdf(file_path):
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
 
-            context = _get_surrounding_text(full_text, page_text)
+            context = _get_surrounding_text(page, img_rect)
 
             fig_index += 1
             figures.append({

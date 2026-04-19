@@ -253,6 +253,10 @@ with tab5:
             if fig_dict.get("caption"):
                 st.caption(f"**Extracted Caption:** {fig_dict['caption']}")
             
+            if fig_dict.get("context"):
+                with st.expander("📄 View Surrounding Paper Text (200 words)"):
+                    st.write(fig_dict["context"])
+            
             st.image(fig_dict["path"], width=600)
             
             if i in st.session_state.vision_dict:

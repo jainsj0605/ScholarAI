@@ -109,7 +109,7 @@ def analyze_single_image(figure: dict) -> str:
 You are provided with:
 1. The ACTUAL FIGURE IMAGE (visual)
 2. The CAPTION that the authors wrote for this figure
-3. The SURROUNDING TEXT from the paper where this figure is discussed
+3. 200 WORDS OF SPATIAL CONTEXT (100 words directly above and 100 words directly below the figure in the PDF)
 
 Use ALL three sources together to answer the following:
 
@@ -118,13 +118,13 @@ Use ALL three sources together to answer the following:
 ---
 
 **Your Analysis Tasks:**
-- **Figure Type**: What kind of figure is this? (e.g., Architecture diagram, Results graph, Ablation table, Confusion matrix, etc.)
-- **Key Visual Data**: What specific numbers, labels, axes, or patterns are visible in the image?
-- **Author's Claim**: Based on the caption and surrounding text, what is the author trying to prove with this figure?
-- **Claim Validation**: Does the visual content of the image actually support the author's claim? Are there any inconsistencies or missing details?
+- **Figure Type**: What kind of figure is this? (e.g., Architecture diagram, Results graph, etc.)
+- **Key Visual Data**: What specific numbers, labels, or patterns are visible in the image?
+- **Author's Claim**: Based on the caption and the surrounding context (Above/Below), what is the author trying to prove?
+- **Claim Validation**: Does the visual content actually support the text provided above and below the figure?
 - **Research Significance**: Why is this figure important to the paper's contribution?
 
-Be precise. Quote numbers you can see in the image. Do not hallucinate data not visible in the figure."""
+Be precise. Do not hallucinate data not visible in the figure."""
 
     try:
         b64 = encode_image(img_path)
