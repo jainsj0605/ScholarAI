@@ -59,7 +59,7 @@ def search_arxiv(query, sort_by="submittedDate"):
     """Step 3: Tiered Search for ArXiv with Boolean logic and Sorting."""
     if not query: return []
     # query is already formatted as all:K1+AND+all:K2 from the tiered graph node
-    url = f"https://export.arxiv.org/api/query?search_query={query}&start=0&max_results=10"
+    url = f"https://export.arxiv.org/api/query?search_query={query}&start=0&max_results=15"
     
     if sort_by == "submittedDate":
         url += "&sortBy=submittedDate&sortOrder=descending"
@@ -82,7 +82,7 @@ def search_arxiv(query, sort_by="submittedDate"):
                     papers.append({
                         "title": re.sub(r'\s+', ' ', t_m.group(1)).strip(),
                         "summary": abs_text,
-                        "has_abstract": len(abs_text) > 50,
+                        "has_abstract": len(abs_text) > 20,
                         "year": p_m.group(1)[:4] if p_m else "",
                         "link": id_m.group(1).strip(),
                         "venue": "ArXiv"
@@ -94,7 +94,7 @@ def search_arxiv(query, sort_by="submittedDate"):
 def search_semantic_scholar(query):
     cleaned = clean_query(query)
     q_encoded = quote_plus(cleaned)
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={q_encoded}&limit=10&fields=title,abstract,year,url,venue"
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={q_encoded}&limit=15&fields=title,abstract,year,url,venue"
     try:
         res = requests.get(url, timeout=15)
         if res.status_code == 200:
@@ -106,7 +106,7 @@ def search_semantic_scholar(query):
                 papers.append({
                     "title": item.get("title"),
                     "summary": abstract,
-                    "has_abstract": len(abstract) > 50,
+                    "has_abstract": len(abstract) > 20,
                     "year": str(item.get("year", "")),
                     "link": item.get("url"),
                     "venue": normalize_venue(item.get("venue") or "Semantic Scholar")
@@ -120,7 +120,7 @@ def search_openalex(query):
     cleaned = clean_query(query)
     words = cleaned.split()
     q_encoded = "+".join(words)
-    url = f"https://api.openalex.org/works?search={q_encoded}&filter=has_abstract:true&per_page=10&mailto=admin@scholarai.app"
+    url = f"https://api.openalex.org/works?search={q_encoded}&filter=has_abstract:true&per_page=15&mailto=admin@scholarai.app"
     try:
         res = requests.get(url, timeout=18)
         if res.status_code == 200:
@@ -144,7 +144,7 @@ def search_openalex(query):
                 papers.append({
                     "title": title,
                     "summary": abstract,
-                    "has_abstract": len(abstract) > 50,
+                    "has_abstract": len(abstract) > 20,
                     "year": str(item.get("publication_year", "")),
                     "link": link,
                     "venue": normalize_venue((item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex"))
@@ -156,7 +156,7 @@ def search_openalex(query):
 def search_crossref(query):
     cleaned = clean_query(query)
     q_encoded = quote_plus(cleaned)
-    url = f"https://api.crossref.org/works?query={q_encoded}&rows=10"
+    url = f"https://api.crossref.org/works?query={q_encoded}&rows=15"
     try:
         res = requests.get(url, timeout=15)
         if res.status_code == 200:
@@ -177,7 +177,7 @@ def search_crossref(query):
                 papers.append({
                     "title": title_list[0],
                     "summary": abstract,
-                    "has_abstract": len(abstract) > 50,
+                    "has_abstract": len(abstract) > 20,
                     "year": str(item.get("published-print", {}).get("date-parts", [[""]])[0][0]),
                     "link": link,
                     "doi": doi,

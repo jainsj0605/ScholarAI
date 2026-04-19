@@ -136,8 +136,9 @@ def semantic_rerank(query_summary, candidate_list):
         dynamic_threshold = max(0.15, min(0.6, top_score * 0.75))
         
         filtered = [p for p in safe_candidates if p.get("relevance_score", 0) >= dynamic_threshold]
-        if len(filtered) < 3:
-            return safe_candidates[:3]
+        if len(filtered) < 5:
+            # Threshold was too strict — return top-5 by score regardless
+            return safe_candidates[:5]
         return filtered
     except Exception as e:
         print(f"Reranking error: {e}")
@@ -254,20 +255,29 @@ def node_arxiv_search(state: PaperState) -> PaperState:
     all_unique = list(seen_slugs.values())
     enriched = enrich_missing_abstracts(all_unique)
     
-    # STRICT QUALITY GATE: Only pass papers with real abstracts to comparison
-    # Papers without abstracts cause "Not Reported" in every comparison section
-    unique_candidates = [p for p in enriched if p.get("has_abstract")]
+    # TIERED QUALITY GATE: First prefer papers with real abstracts.
+    # But if that yields too few, fall back to papers with any summary text
+    # (prevents the pipeline from returning only 1 paper due to over-filtering)
+    top_tier = [p for p in enriched if p.get("has_abstract")]
     
-    # Fallback: if filtering removed everything, keep only papers with at least some content
-    if not unique_candidates:
-        # Last resort: keep papers that have at least a title and a non-empty summary
+    if len(top_tier) >= 4:
+        # Enough high-quality papers — use them
+        unique_candidates = top_tier
+    elif top_tier:
+        # Top-tier is thin — supplement with papers that have any summary
+        second_tier = [p for p in enriched 
+                       if not p.get("has_abstract") and p.get("summary", "").strip()]
+        unique_candidates = top_tier + second_tier
+    else:
+        # Last resort: any paper with a non-empty summary
         unique_candidates = [p for p in enriched if p.get("summary", "").strip()]
+    
     if not unique_candidates:
-        unique_candidates = enriched[:3]  # absolute fallback
-                
-    # Step 8: Final Selection (Top 6)
+        unique_candidates = enriched[:5]  # absolute fallback
+
+    # Step 8: Final Selection (Top 8 — more papers = richer comparison)
     reranked = semantic_rerank(state["summary"], unique_candidates)
-    state["papers"] = reranked[:6]
+    state["papers"] = reranked[:8]
     return state
 
 def node_compare(state: PaperState) -> PaperState:
