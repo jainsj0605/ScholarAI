@@ -210,17 +210,10 @@ def rerank_papers(original_summary, papers, top_k=6):
     import numpy as np
     from sklearn.metrics.pairwise import cosine_similarity
     
-    # Pair similarities with papers and apply a penalty for missing or placeholder abstracts
-    final_scores = []
-    for i, p in enumerate(papers):
-        sim = similarities[i]
-        summary_text = p.get("summary", "").lower()
-        # Heavy penalty if the abstract is a known placeholder
-        if "metadata was not provided" in summary_text or "not directly available" in summary_text or "no abstract" in summary_text:
-            sim -= 0.6
-        final_scores.append((p, sim))
+    similarities = cosine_similarity([query_emb], cand_embs)[0]
     
-    ranked = sorted(final_scores, key=lambda x: x[1], reverse=True)
+    # Pair similarities with papers and sort
+    ranked = sorted(zip(papers, similarities), key=lambda x: x[1], reverse=True)
     
     # Return top K unique papers
     return [r[0] for r in ranked[:top_k]]
