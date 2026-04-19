@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Q&A — Research AI{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <div>
+    <h2 style="font-size:1.4rem;color:#7c9ef8;margin-bottom:4px">💬 Ask the Paper</h2>
+    <p style="color:#666;font-size:.88rem">Ask anything about the uploaded paper. Answers are grounded in the paper content using RAG.</p>
+  </div>
+  <div id="paperTag" style="font-size:.8rem;color:#555"></div>
+</div>
+
+<div id="noPaper" class="card hidden">
+  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a></p>
+</div>
+
+<div class="card" id="qaCard">
+  <div style="display:flex;gap:10px;margin-bottom:6px">
+    <input type="text" id="queryInput"
+           placeholder="e.g. What dataset was used? What is the main contribution?"
+           style="flex:1;background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:11px 14px;color:#e0e0e0;font-size:.9rem;outline:none"
+           onfocus="this.style.borderColor='#7c9ef8'" onblur="this.style.borderColor='#2a3347'"
+           onkeydown="if(event.key==='Enter') askQuestion()"/>
+    <button class="btn btn-primary" id="askBtn" onclick="askQuestion()">Ask</button>
+  </div>
+  <p style="font-size:.75rem;color:#444;margin-bottom:16px">Press Enter or click Ask</p>
+
+  <!-- Suggested questions -->
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+    <span style="font-size:.75rem;color:#555;align-self:center">Try:</span>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What is the main contribution?</button>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What dataset was used?</button>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What are the results?</button>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What are the limitations?</button>
+  </div>
+
+  <hr class="divider"/>
+
+  <!-- History -->
+  <div id="qaHistory" style="display:flex;flex-direction:column;gap:14px;max-height:520px;overflow-y:auto"></div>
+  <p id="emptyHint" style="color:#333;font-size:.85rem;text-align:center;padding:30px 0">Your Q&A history will appear here</p>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const topic = SS.str("topic");
+  if(!topic){
+    document.getElementById("noPaper").classList.remove("hidden");
+    document.getElementById("qaCard").classList.add("hidden");
+  } else {
+    document.getElementById("paperTag").innerHTML = `<span class="badge badge-info">${topic}</span>`;
+  }
+
+  // Restore history
+  const history = SS.get("qaHistory") || [];
+  history.forEach(h => renderQA(h.q, h.a));
+  if(history.length) document.getElementById("emptyHint").classList.add("hidden");
+
+  function setQ(t){ document.getElementById("queryInput").value = t; }
+
+  async function askQuestion(){
+    const q = document.getElementById("queryInput").value.trim();
+    if(!q) return;
+    setBtn("askBtn", true, "Thinking...");
+    document.getElementById("emptyHint").classList.add("hidden");
+    try{
+      const res  = await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q})});
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      renderQA(q, data.answer);
+      // Save to session
+      const hist = SS.get("qaHistory") || [];
+      hist.push({q, a: data.answer});
+      SS.set("qaHistory", hist);
+      document.getElementById("queryInput").value = "";
+    } catch(e){
+      renderQA(q, `**Error:** ${e.message}`);
+    }
+    setBtn("askBtn", false, "Ask");
+  }
+
+  function renderQA(q, a){
+    const el = document.getElementById("qaHistory");
+    const div = document.createElement("div");
+    div.style.cssText = "background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:16px";
+    div.innerHTML = `
+      <div style="color:#f0a04b;font-size:.8rem;font-weight:600;margin-bottom:8px;display:flex;gap:6px;align-items:center">
+        <span>Q</span><span style="color:#2a3347">|</span><span style="color:#c8d0e0;font-weight:400">${q}</span>
+      </div>
+      <div class="md-out" style="border:none;padding:0;background:transparent;max-height:none">${md(a)}</div>`;
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;
+  }
+</script>
+{% endblock %}

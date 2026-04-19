@@ -1,7 +1,4 @@
-import os, json, re, io, base64, requests, time
-from urllib.parse import quote
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
+import os, json, re, io, base64, requests
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -14,8 +11,6 @@ from flask import Flask, request, jsonify, send_file, render_template
 from groq import Groq
 from sentence_transformers import SentenceTransformer
 from langgraph.graph import StateGraph, END
-import concurrent.futures
-from api_search import search_arxiv, search_semantic_scholar, search_openalex, search_crossref, clean_query, enrich_missing_abstracts
 
 # =========================
 # CONFIG
@@ -98,52 +93,21 @@ def retrieve(query, k=3):
     _, I = index.search(np.array(emb), k)
     return [documents[i] for i in I[0] if i < len(documents)]
 
-# Engineering publishers get a relevance bonus to surface IEEE/Springer over noise
-ENGINEERING_PUBLISHERS = {
-    "ieee", "springer", "elsevier", "wiley", "acm", "nature", "taylor",
-    "iet", "inspec", "iospress", "hindawi", "mdpi", "sage", "emerald"
-}
-
-def _engineering_bonus(paper):
-    """Return +0.10 if from a prestigious engineering publisher, else 0."""
-    venue = paper.get("venue", "").lower()
-    if any(pub in venue for pub in ENGINEERING_PUBLISHERS):
-        return 0.10
-    return 0.0
-
-def semantic_rerank(query_summary, candidate_list):
-    """Sorts papers by semantic similarity + engineering publisher bonus."""
-    if not candidate_list or not query_summary:
-        return candidate_list
+def search_arxiv(query):
+    q = query.replace(" ", "+")
+    url = f"http://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results=5&sortBy=submittedDate&sortOrder=descending"
     try:
-        safe_candidates = [p for p in candidate_list if p.get('title')]
-        if not safe_candidates: return []
-        
-        texts = [f"{p['title']} {p.get('summary', '')}" for p in safe_candidates]
-        query_emb = embed_model.encode([query_summary])[0]
-        candidate_embs = embed_model.encode(texts)
-        
-        norm_q = np.linalg.norm(query_emb)
-        for i, p in enumerate(safe_candidates):
-            emb = candidate_embs[i]
-            norm_e = np.linalg.norm(emb)
-            base_score = np.dot(query_emb, emb) / (norm_q * norm_e) if (norm_q > 0 and norm_e > 0) else 0
-            # Engineering bonus: prestigious publishers score higher
-            p["relevance_score"] = float(base_score) + _engineering_bonus(p)
-            
-        safe_candidates.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
-        top_score = safe_candidates[0].get("relevance_score", 0)
-        dynamic_threshold = max(0.15, min(0.6, top_score * 0.75))
-        
-        filtered = [p for p in safe_candidates if p.get("relevance_score", 0) >= dynamic_threshold]
-        if len(filtered) < 3:
-            return safe_candidates[:3]
-        return filtered
+        res = requests.get(url, timeout=10)
+        papers = []
+        if res.status_code == 200:
+            for entry in res.text.split("<entry>")[1:]:
+                title   = entry.split("<title>")[1].split("</title>")[0].strip()
+                summary = entry.split("<summary>")[1].split("</summary>")[0].strip()
+                year    = entry.split("<published>")[1].split("</published>")[0][:4] if "<published>" in entry else ""
+                papers.append({"title": title, "summary": summary, "year": year})
+        return papers
     except Exception as e:
-        print(f"Reranking error: {e}")
-        return candidate_list[:6]
-
-# Modular search functions moved to api_search.py
+        return [{"title": "Search failed", "summary": str(e), "year": ""}]
 
 # =========================
 # LANGGRAPH NODES
@@ -190,114 +154,22 @@ def node_vision(state: PaperState) -> PaperState:
     return state
 
 def node_extract_topic(state: PaperState) -> PaperState:
-    """Step 1: Extract high-density keywords for engineering-grade search."""
-    prompt = f"""Extract 3-4 high-density technical keywords from this paper summary.
-Focus on core methodology and technical domain (e.g., 'Amplitude Modulation', 'Deep Learning').
-Return ONLY keywords separated by commas.
-
-Summary:
-{state['summary']}"""
-    raw = llm(prompt).strip()
-    state["topic"] = raw
+    state["topic"] = llm(f"Extract the main research topic (2-5 words for arxiv search) from this summary. Return ONLY the topic phrase.\n\n{state['summary']}").strip()
     return state
 
 def node_arxiv_search(state: PaperState) -> PaperState:
-    """Step 3 & 4: Parallel Multi-Engine Search with Tiered Fallback."""
-    raw_keywords = state["topic"]
-    cleaned = clean_query(raw_keywords)
-    keywords = [k.strip() for k in cleaned.split(',') if k.strip()]
-    
-    if not keywords:
-        state["papers"] = []
-        return state
-
-    def run_tiered_arxiv(k_list):
-        # Tier 1: Bold Boolean Search with Category Locking (CS fallback)
-        q = "+AND+".join([f"all:{k.replace(' ', '+')}" for k in k_list])
-        results = search_arxiv(q, sort_by="submittedDate")
-        if results: return results
-        # Tier 2: Relevance fallback
-        q_simple = "+AND+".join([f"all:{k.replace(' ', '+')}" for k in k_list[:2]])
-        return search_arxiv(q_simple, sort_by="relevance")
-
-    # Step 4: Run Engines in Parallel
-    query_str = " ".join(keywords)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        f_arxiv = executor.submit(run_tiered_arxiv, keywords)
-        f_s2    = executor.submit(search_semantic_scholar, query_str)
-        f_oa    = executor.submit(search_openalex, query_str)
-        f_cr    = executor.submit(search_crossref, query_str)
-        
-        arxiv_p = f_arxiv.result()
-        s2_p    = f_s2.result()
-        oa_p    = f_oa.result()
-        cr_p    = f_cr.result()
-
-    # Step 6: Deduplication by Title Slug + Abstract Quality Gate
-    all_raw = arxiv_p + s2_p + oa_p + cr_p
-    seen_slugs = {}  # slug -> paper (keep best version)
-    
-    for p in all_raw:
-        slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
-        if not slug:
-            continue
-        # If we've seen this paper, keep the version with a real abstract
-        if slug in seen_slugs:
-            existing = seen_slugs[slug]
-            if not existing.get("has_abstract") and p.get("has_abstract"):
-                seen_slugs[slug] = p  # upgrade to version with abstract
-        else:
-            seen_slugs[slug] = p
-    
-    # Step 7: Abstract Enrichment — fetch missing abstracts via DOI/title lookup
-    # This fixes Crossref papers that are paywalled and don't return abstracts
-    all_unique = list(seen_slugs.values())
-    enriched = enrich_missing_abstracts(all_unique)
-    
-    # STRICT QUALITY GATE: Only pass papers with real abstracts to comparison
-    # Papers without abstracts cause "Not Reported" in every comparison section
-    unique_candidates = [p for p in enriched if p.get("has_abstract")]
-    
-    # Fallback: if filtering removed everything, keep only papers with at least some content
-    if not unique_candidates:
-        # Last resort: keep papers that have at least a title and a non-empty summary
-        unique_candidates = [p for p in enriched if p.get("summary", "").strip()]
-    if not unique_candidates:
-        unique_candidates = enriched[:3]  # absolute fallback
-                
-    # Step 8: Final Selection (Top 6)
-    reranked = semantic_rerank(state["summary"], unique_candidates)
-    state["papers"] = reranked[:6]
+    state["papers"] = search_arxiv(state["topic"])
     return state
 
 def node_compare(state: PaperState) -> PaperState:
-    if not state.get("papers") or (len(state["papers"]) == 1 and state["papers"][0]["title"] == "Search failed"):
-        state["comparison"] = "Deeply sorry, but I couldn't retrieve related papers from arXiv at this moment. This can happen if their service is temporarily down or if the extracted topic is too specific. You can try editing the search topic manually and running the comparison again."
-        return state
-
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"] if p.get('has_abstract')])
-    
-    # Count papers with actual content vs without
-    papers_with_data = [p for p in state["papers"] if p.get('has_abstract')]
-    papers_without = [p for p in state["papers"] if not p.get('has_abstract')]
-    
-    skip_notice = ""
-    if papers_without:
-        skip_names = ", ".join([f'"{p["title"]}"' for p in papers_without])
-        skip_notice = f"\n\nNOTE: The following papers were found but their full abstracts are not publicly available (behind paywall/login): {skip_names}. Do NOT include these in your analysis — only analyze papers for which abstract text is provided above."
-    
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""You are a research analyst. Compare the original paper with recent research using markdown.
-
-IMPORTANT RULES:
-- ONLY analyze papers for which abstract/summary text is provided below.
-- Do NOT write "Not Reported" or "No specific data" for any paper. If a paper lacks enough information, simply exclude it from the analysis.
-- Every paper you mention MUST have concrete evidence from its abstract.
 
 Original Paper Summary:
 {state['summary']}
 
-Recent Related Research (with abstracts):
-{combined}{skip_notice}
+Recent Related Research:
+{combined}
 
 ## Key Differences
 How does the original differ from recent work?

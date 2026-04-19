@@ -33,23 +33,13 @@
   <!-- Results (hidden until run) -->
   <div id="resultsSection" class="hidden">
     <div class="card">
-      <div class="card-title" style="justify-content:space-between">
-        <span>📚 Related Papers Found</span>
-        <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'papersCard')">⊞</button>
-      </div>
-      <div id="papersCard" style="border:1px solid #2a3347;border-radius:10px;padding:12px;background:#0f1117">
-        <div id="papersList" style="display:flex;flex-direction:column;gap:10px"></div>
-      </div>
+      <div class="card-title">📚 Related Papers Found</div>
+      <div id="papersList" style="display:flex;flex-direction:column;gap:10px"></div>
     </div>
 
     <div class="card">
-      <div class="card-title" style="justify-content:space-between">
-        <span>📊 Comparative Analysis</span>
-        <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'comparisonCard')">⊞</button>
-      </div>
-      <div id="comparisonCard">
-        <div id="comparisonOutput" class="md-out" style="max-height:500px"></div>
-      </div>
+      <div class="card-title">📊 Comparative Analysis</div>
+      <div id="comparisonOutput" class="md-out" style="max-height:500px"></div>
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:10px">
@@ -98,32 +88,14 @@
 
   function showResults(papers, comparison){
     const list = document.getElementById("papersList");
-    list.innerHTML = papers.map(p=>{
-      const hasAbstract = p.has_abstract;
-      const enriched = p.enriched;
-      let statusBadge = '';
-      if (!hasAbstract) {
-        statusBadge = `<span class="badge" style="background:#3a2a1e;color:#f0a04b;font-size:0.7rem;flex-shrink:0" title="Abstract not publicly available">⚠ No Abstract</span>`;
-      } else if (enriched) {
-        statusBadge = `<span class="badge" style="background:#1e2a3a;color:#7cc4f8;font-size:0.7rem;flex-shrink:0" title="Abstract fetched from Semantic Scholar">🔗 Enriched</span>`;
-      }
-      const summaryText = hasAbstract
-        ? `<p style="color:#ccc;font-size:.85rem;line-height:1.6;margin-top:8px">${p.summary.substring(0,400)}...</p>`
-        : `<p style="color:#888;font-size:.82rem;font-style:italic;margin-top:8px">Abstract not available — this paper is behind a paywall or login. It has been excluded from the comparative analysis.</p>`;
-      return `
-      <div style="background:#0f1117;border:1px solid ${hasAbstract ? '#2a3347' : '#3a2a1e'};border-radius:8px;padding:14px;${!hasAbstract ? 'opacity:0.7' : ''}">
-        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;flex-wrap:wrap">
-          <span class="badge badge-info" style="flex-shrink:0">${p.year || '—'}</span>
-          <span class="badge" style="background:#2a3a1e;color:#4caf82;font-size:0.75rem">${p.venue || 'Academic Source'}</span>
-          ${statusBadge}
+    list.innerHTML = papers.map(p=>`
+      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:14px">
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+          <span class="badge badge-info" style="flex-shrink:0">${p.year}</span>
           <span style="color:#7c9ef8;font-size:.88rem;font-weight:600">${p.title}</span>
         </div>
-        ${summaryText}
-        <div style="margin-top:10px">
-           <a href="${p.link}" target="_blank" style="color:#7c9ef8;font-size:.75rem;text-decoration:none">View Source ↗</a>
-        </div>
-      </div>`;
-    }).join('');
+        <p style="color:#888;font-size:.8rem;line-height:1.6">${p.summary.substring(0,280)}...</p>
+      </div>`).join('');
 
     document.getElementById("comparisonOutput").innerHTML = md(comparison);
     document.getElementById("resultsSection").classList.remove("hidden");
