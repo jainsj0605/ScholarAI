@@ -22,7 +22,15 @@ from api_search import search_arxiv, search_semantic_scholar, search_openalex, s
 # =========================
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
 client        = Groq(api_key=GROQ_API_KEY)
-TEXT_MODEL    = "openai/gpt-oss-120b"
+
+# Model fallback chain — ordered by TPD limit (highest first)
+# llama-3.1-8b-instant: 500K TPD  |  gemma2-9b-it: 500K TPD  |  llama3-8b-8192: 500K TPD
+# llama-3.3-70b-versatile is AVOIDED (only 100K TPD — hits limit after ~2 PDFs)
+TEXT_MODELS   = [
+    "llama-3.1-8b-instant",   # primary  — 500K TPD, very fast
+    "gemma2-9b-it",           # fallback1 — 500K TPD
+    "llama3-8b-8192",         # fallback2 — 500K TPD
+]
 VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 app          = Flask(__name__)
@@ -57,14 +65,23 @@ def encode_image(path):
         return base64.b64encode(f.read()).decode("utf-8")
 
 def llm(prompt: str) -> str:
-    try:
-        res = client.chat.completions.create(
-            model=TEXT_MODEL,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return res.choices[0].message.content
-    except Exception as e:
-        return f"Error: {e}"
+    """Call Groq LLM with automatic model fallback on rate-limit (429)."""
+    for model in TEXT_MODELS:
+        try:
+            res = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=2048      # cap output to save TPD
+            )
+            return res.choices[0].message.content
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "rate_limit" in err.lower():
+                print(f"[Rate limit] {model} exhausted, trying next model...")
+                time.sleep(2)   # brief pause before switching
+                continue
+            return f"Error: {e}"  # non-rate-limit error — return immediately
+    return "Error: All models are currently rate-limited. Please wait a few minutes and try again."
 
 def parse_pdf(file_path):
     doc = fitz.open(file_path)
@@ -168,7 +185,7 @@ Key results and metrics.
 Known limitations.
 
 Paper text:
-{state['text'][:4000]}"""
+{state['text'][:3000]}"""
     state["summary"] = llm(prompt)
     return state
 
@@ -329,10 +346,10 @@ def node_improve(state: PaperState) -> PaperState:
     prompt = f"""You are an expert research advisor. Read this paper and identify sections that need improvement.
 
 Paper text:
-{full_text[:6000]}
+{full_text[:4000]}
 
 Comparative analysis with recent work:
-{state['comparison']}
+{state['comparison'][:1500]}
 
 For each section that needs improvement, explain specifically what is weak and what should be changed.
 Use markdown with section headings like ## Abstract, ## Introduction, ## Methodology, ## Results, ## Conclusion."""
@@ -346,10 +363,10 @@ def node_rewrite_sections(state: PaperState) -> PaperState:
     prompt = f"""You are rewriting weak sections of a research paper to improve quality.
 
 Full paper text:
-{full_text[:8000]}
+{full_text[:5000]}
 
 Improvement analysis:
-{state['improvements']}
+{state['improvements'][:1500]}
 
 Your task: For each section that needs improvement, provide the rewritten version.
 
