@@ -157,18 +157,24 @@ def node_arxiv_search(state):
         state["papers"] = []
         return state
         
+    # Search all sources - they now filter for quality abstracts internally
     arxiv_p = search_arxiv(query)
-    crossref_p = search_crossref(query)
-    openalex_p = search_openalex(query)
     semantic_p = search_semantic_scholar(query)
+    openalex_p = search_openalex(query)
+    crossref_p = search_crossref(query)
     
-    all_p = crossref_p + openalex_p + semantic_p + arxiv_p
+    # Prioritize sources with better abstract quality: ArXiv > Semantic Scholar > OpenAlex > CrossRef
+    all_p = arxiv_p + semantic_p + openalex_p + crossref_p
+    
     unique = []
     seen = set()
     for p in all_p:
-        # Relaxed filtering: Keep papers even with minimal metadata summaries
-        # Just ensure they have a title and some summary text
-        if not p.get("title") or not p.get("summary") or len(p["summary"]) < 20:
+        # Strict filtering: Only keep papers with substantial abstracts (100+ chars)
+        if not p.get("title") or not p.get("summary") or len(p["summary"].strip()) < 100:
+            continue
+        
+        # Skip generic placeholder text
+        if "not provided" in p["summary"].lower() or "metadata indicates" in p["summary"].lower():
             continue
             
         slug = re.sub(r'[^a-z0-9]', '', p['title'].lower())
@@ -176,22 +182,27 @@ def node_arxiv_search(state):
             unique.append(p)
             seen.add(slug)
     
-    # NEW: Semantic re-ranking using the original paper summary
+    # Semantic re-ranking using the original paper summary to get most relevant papers
     state["papers"] = rerank_papers(state["summary"], unique, top_k=6)
     return state
 
 
 def node_compare_problem(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 1. Problem & Objective
-CONSTRAINTS: What is the paper trying to solve? Compare the primary objective facing the original paper versus the related research (e.g., Engineering system design, Medical disease treatment, Economics policy, etc.).
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points (e.g., **[Year] [Title]**) to visually separate the comparison.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. If details are missing, simply skip or state 'Not Reported'. Stay strictly analytical.
+CONSTRAINTS: What is the paper trying to solve? Compare the primary objective facing the original paper versus the related research.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings (e.g., **[Year] [Title]**).
+MANDATORY: Extract EVERY available detail from the abstracts - research gaps, motivations, target applications, specific challenges addressed.
+MANDATORY: If an abstract lacks specific problem statements, infer from the methodology and results described.
+MANDATORY: DO NOT write "Not Reported" unless the abstract is completely uninformative. Extract what you can.
 
 ### CONTEXT ###
-Original: {state['summary'][:2000]}
-Related Research: {combined}
+Original Paper Summary:
+{state['summary'][:2500]}
+
+Related Research Papers:
+{combined}
 
 ## 1. Problem & Objective
 """
@@ -199,16 +210,21 @@ Related Research: {combined}
     return state
 
 def node_compare_method(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 2. Methodology & Approach
-CONSTRAINTS: How is the problem solved? Compare the approaches used (e.g., Algorithms, Experiments, Theoretical models, Surveys) against the related works.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+CONSTRAINTS: How is the problem solved? Compare the approaches used (e.g., Algorithms, Models, Frameworks, Experiments, Theoretical analysis).
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: Extract EVERY methodological detail from abstracts - algorithms, architectures, frameworks, mathematical models, experimental designs.
+MANDATORY: Look for keywords like "propose", "develop", "design", "implement", "analyze", "model", "framework", "algorithm", "method".
+MANDATORY: If methodology is implicit, infer from problem and results sections.
 
 ### CONTEXT ###
-Original: {state['summary'][:2000]}
-Related Research: {combined}
+Original Paper Summary:
+{state['summary'][:2500]}
+
+Related Research Papers:
+{combined}
 
 ## 2. Methodology & Approach
 """
@@ -216,16 +232,21 @@ Related Research: {combined}
     return state
 
 def node_compare_data(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 3. Data & Evidence
-CONSTRAINTS: What data is used? Compare the exact evidence, datasets, case studies, or simulations used in this paper versus each related paper.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+CONSTRAINTS: What data/evidence is used? Compare datasets, simulations, case studies, experimental setups, or theoretical proofs.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: Extract EVERY data-related detail - dataset names, simulation parameters, experimental conditions, sample sizes, test scenarios.
+MANDATORY: Look for keywords like "dataset", "data", "simulation", "experiment", "test", "benchmark", "case study", "evaluation", "validate".
+MANDATORY: If specific datasets aren't named, describe the type of data used (e.g., "satellite telemetry data", "clinical trials", "synthetic data").
 
 ### CONTEXT ###
-Original: {state['summary'][:2000]}
-Related Research: {combined}
+Original Paper Summary:
+{state['summary'][:2500]}
+
+Related Research Papers:
+{combined}
 
 ## 3. Data & Evidence
 """
@@ -233,16 +254,21 @@ Related Research: {combined}
     return state
 
 def node_compare_results(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 4. Results & Findings
-CONSTRAINTS: What did they achieve? Compare the findings, observations, Accuracy rates, or categorical improvements against the related works.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+CONSTRAINTS: What did they achieve? Compare findings, performance metrics, improvements, observations, or discoveries.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: Extract EVERY quantitative and qualitative result - accuracy rates, error reductions, performance gains, efficiency improvements, novel findings.
+MANDATORY: Look for keywords like "achieve", "improve", "reduce", "increase", "demonstrate", "show", "find", "result", "performance", "accuracy", "error", "%", "dB", "rate".
+MANDATORY: Include specific numbers, percentages, or comparative statements (e.g., "outperforms", "better than", "reduces by").
 
 ### CONTEXT ###
-Original: {state['summary'][:2000]}
-Related Research: {combined}
+Original Paper Summary:
+{state['summary'][:2500]}
+
+Related Research Papers:
+{combined}
 
 ## 4. Results & Findings
 """
@@ -250,16 +276,21 @@ Related Research: {combined}
     return state
 
 def node_compare_eval(state):
-    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary'][:1500]}" for p in state["papers"]])
+    combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Reviewer | TASK: 5. Evaluation Method
-CONSTRAINTS: How did they validate results? Compare the validation strategies, metrics, experiments, or proofs used to confirm effectiveness.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings or bullet points.
-MANDATORY: DO NOT include any meta-commentary, recommendations, "Bottom lines", or hypothetical examples. Stay analytical.
+CONSTRAINTS: How did they validate results? Compare validation strategies, metrics, experimental protocols, or theoretical proofs.
+MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: Extract EVERY evaluation detail - metrics used (RMSE, accuracy, F1, BER, SNR, etc.), comparison baselines, validation methods, statistical tests.
+MANDATORY: Look for keywords like "evaluate", "validate", "compare", "metric", "measure", "assess", "test", "benchmark", "baseline", "versus", "against".
+MANDATORY: If explicit evaluation isn't described, infer from results section (e.g., "compared against X" implies comparative evaluation).
 
 ### CONTEXT ###
-Original: {state['summary'][:2000]}
-Related Research: {combined}
+Original Paper Summary:
+{state['summary'][:2500]}
+
+Related Research Papers:
+{combined}
 
 ## 5. Evaluation Method
 """

@@ -22,8 +22,8 @@ def clean_query(query):
     return " ".join(words)
 
 def search_semantic_scholar(query):
-    # Increase limit slightly for re-ranking
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=10&fields=title,abstract,year,url,venue"
+    # Increase limit to get more candidates with real abstracts
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=20&fields=title,abstract,year,url,venue"
     try:
         res = requests.get(url, timeout=12)
         if res.status_code == 200:
@@ -31,20 +31,22 @@ def search_semantic_scholar(query):
             papers = []
             for item in data.get("data", []):
                 title = item.get("title", "Untitled")
-                summary = item.get("abstract") or f"This Semantic Scholar record for '{title}' covers research related to the technical keywords. While a full abstract was not provided in the primary feed, the metadata indicates high technical relevance."
-                papers.append({
-                    "title": title,
-                    "summary": summary,
-                    "year": str(item.get("year", "")),
-                    "link": item.get("url", ""),
-                    "venue": item.get("venue") or "Semantic Scholar"
-                })
+                abstract = item.get("abstract")
+                # ONLY include papers with real abstracts (at least 100 chars of actual content)
+                if abstract and len(abstract.strip()) >= 100:
+                    papers.append({
+                        "title": title,
+                        "summary": abstract,
+                        "year": str(item.get("year", "")),
+                        "link": item.get("url", ""),
+                        "venue": item.get("venue") or "Semantic Scholar"
+                    })
             return papers
     except: pass
     return []
 
 def search_openalex(query):
-    url = f"https://api.openalex.org/works?search={requests.utils.quote(query)}&limit=8"
+    url = f"https://api.openalex.org/works?search={requests.utils.quote(query)}&limit=15"
     try:
         res = requests.get(url, timeout=15)
         if res.status_code == 200:
@@ -52,12 +54,6 @@ def search_openalex(query):
             papers = []
             for item in data.get("results", []):
                 title = item.get("display_name", "Untitled")
-                p_dict = {
-                    "title": title,
-                    "year": str(item.get("publication_year", "")),
-                    "link": item.get("doi") or f"https://openalex.org/{item.get('id').split('/')[-1]}",
-                    "venue": (item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex")
-                }
                 
                 # Reconstruct OpenAlex inverted index abstract
                 idx = item.get("abstract_inverted_index")
@@ -65,17 +61,23 @@ def search_openalex(query):
                     words = []
                     for word, pos in idx.items():
                         for p in pos: words.append((p, word))
-                    p_dict["summary"] = " ".join([w[1] for w in sorted(words)])[:1500]
-                else:
-                    p_dict["summary"] = f"Abstract for '{title}' is not provided via the OpenAlex API in this technical record. Please check the linked repository or publication page for the full text."
+                    reconstructed = " ".join([w[1] for w in sorted(words)])[:1500]
                     
-                papers.append(p_dict)
+                    # ONLY include if we have substantial abstract content
+                    if len(reconstructed.strip()) >= 100:
+                        papers.append({
+                            "title": title,
+                            "summary": reconstructed,
+                            "year": str(item.get("publication_year", "")),
+                            "link": item.get("doi") or f"https://openalex.org/{item.get('id').split('/')[-1]}",
+                            "venue": (item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex")
+                        })
             return papers
     except: pass
     return []
 
 def search_crossref(query):
-    url = f"https://api.crossref.org/works?query={requests.utils.quote(query)}&rows=8"
+    url = f"https://api.crossref.org/works?query={requests.utils.quote(query)}&rows=15"
     try:
         res = requests.get(url, timeout=12)
         if res.status_code == 200:
@@ -83,13 +85,17 @@ def search_crossref(query):
             papers = []
             for item in data.get("message", {}).get("items", []):
                 title = item.get("title", ["Untitled"])[0]
-                papers.append({
-                    "title": title,
-                    "summary": f"This research record for '{title}' was found via CrossRef. While the specific abstract metadata was not provided in the search response, the paper is indexed under the relevant academic venue for evaluation.",
-                    "year": str(item.get("published-print", {}).get("date-parts", [[""]])[0][0]),
-                    "link": item.get("URL", ""),
-                    "venue": item.get("container-title", ["CrossRef"])[0]
-                })
+                abstract = item.get("abstract", "")
+                
+                # CrossRef sometimes provides abstracts - only include if we have real content
+                if abstract and len(abstract.strip()) >= 100:
+                    papers.append({
+                        "title": title,
+                        "summary": abstract,
+                        "year": str(item.get("published-print", {}).get("date-parts", [[""]])[0][0]),
+                        "link": item.get("URL", ""),
+                        "venue": item.get("container-title", ["CrossRef"])[0]
+                    })
             return papers
     except: pass
     return []

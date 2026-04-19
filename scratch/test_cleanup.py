@@ -1,15 +1,31 @@
-def mock_cleaner(raw_response):
-    marker = "## Executive Summary"
-    if marker in raw_response:
-        return raw_response[raw_response.find(marker):].strip()
-    return raw_response
+import re
 
-# Test 1: Echoed text before summary
-test1 = "This paper is about LEO networks... ## Executive Summary\nAnalysis starts here."
-print(f"Test 1 Results:\n'{mock_cleaner(test1)}'")
+def clean_query(query):
+    # Basic cleaning - handle "Topic:", smart quotes, and labels
+    cleaned_query = re.sub(r'^(Topic|Keywords|Search):\s*', '', query, flags=re.IGNORECASE).strip()
+    # Handle both standard and "smart" quotes “ ” ‘ ’
+    cleaned_query = re.sub(r'^[“"‘\']*(.*?)[”"’\']*$', r'\1', cleaned_query).strip()
+    return cleaned_query
 
-# Test 2: Clean response
-test2 = "## Executive Summary\nOnly clean text."
-print(f"Test 2 Results:\n'{mock_cleaner(test2)}'")
+test_cases = [
+    'Topic: "Machine Learning"',
+    '“Retrieval Augmented Generation”',
+    'keywords: ‘Quantum Computing’',
+    '"Doppler prediction error power control LEO satellite uplink"'
+]
 
-# Test 1 should have removed the first sentence.
+for tc in test_cases:
+    print(f"Original: {tc} -> Cleaned: {clean_query(tc)}")
+
+# Fallback test simulation
+def fallback_sim(query):
+    cleaned = clean_query(query)
+    words = cleaned.split()
+    if len(words) > 3:
+        fallback = " ".join(words[:3])
+        return fallback
+    return cleaned
+
+long_query = "Doppler prediction error power control LEO satellite uplink"
+print(f"\nLong Query: {long_query}")
+print(f"Fallback: {fallback_sim(long_query)}")
