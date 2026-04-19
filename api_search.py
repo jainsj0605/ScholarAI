@@ -140,6 +140,57 @@ def calculate_venue_score(venue):
     # Default score for unknown venues
     return 1.0
 
+
+def fetch_arxiv_fulltext(arxiv_url, max_chars=8000):
+    """
+    Attempts to download and extract text from an ArXiv PDF.
+    Returns extended content if successful, otherwise returns None.
+    """
+    try:
+        # Extract ArXiv ID from URL (e.g., http://arxiv.org/abs/2301.12345v1 -> 2301.12345)
+        arxiv_id_match = re.search(r'arxiv\.org/abs/(\d+\.\d+)', arxiv_url)
+        if not arxiv_id_match:
+            return None
+        
+        arxiv_id = arxiv_id_match.group(1)
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+        
+        # Download PDF with timeout
+        response = requests.get(pdf_url, timeout=30, stream=True)
+        if response.status_code != 200:
+            return None
+        
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            for chunk in response.iter_content(chunk_size=8192):
+                tmp_file.write(chunk)
+            tmp_path = tmp_file.name
+        
+        # Extract text from first few pages (Introduction, Method sections)
+        doc = fitz.open(tmp_path)
+        text_parts = []
+        total_chars = 0
+        
+        # Extract from first 4-5 pages (usually covers intro, method, and some results)
+        for page_num in range(min(5, len(doc))):
+            page = doc[page_num]
+            page_text = page.get_text()
+            text_parts.append(page_text)
+            total_chars += len(page_text)
+            
+            if total_chars >= max_chars:
+                break
+        
+        doc.close()
+        os.unlink(tmp_path)  # Clean up temp file
+        
+        full_text = "\n".join(text_parts)[:max_chars]
+        return full_text if len(full_text) > 500 else None
+        
+    except Exception as e:
+        return None
+
+
 def clean_query(query):
     # Remove metadata prefixes and quotes
     cleaned = re.sub(r'^(Topic|Keywords|Search):\s*', '', query, flags=re.IGNORECASE).strip()
