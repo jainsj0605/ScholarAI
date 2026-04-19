@@ -23,13 +23,10 @@ from api_search import search_arxiv, search_semantic_scholar, search_openalex, s
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
 client        = Groq(api_key=GROQ_API_KEY)
 
-# Model fallback chain — ordered by TPD limit (highest first)
-# llama-3.1-8b-instant: 500K TPD  |  gemma2-9b-it: 500K TPD  |  llama3-8b-8192: 500K TPD
-# llama-3.3-70b-versatile is AVOIDED (only 100K TPD — hits limit after ~2 PDFs)
+# Primary model with one fallback
 TEXT_MODELS   = [
-    "llama-3.1-8b-instant",   # primary  — 500K TPD, very fast
-    "gemma2-9b-it",           # fallback1 — 500K TPD
-    "llama3-8b-8192",         # fallback2 — 500K TPD
+    "openai/gpt-oss-120b",        # primary
+    "llama-3.3-70b-versatile",    # fallback — used only if primary hits rate limit
 ]
 VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
 
