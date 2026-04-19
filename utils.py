@@ -193,7 +193,11 @@ def parse_pdf(file_path):
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
 
-            context = _get_surrounding_text(page, img_rect)
+            if img_rect:
+                context = _get_surrounding_text(page, img_rect)
+            else:
+                # Fallback if spatial context cannot be determined
+                context = f"[PAGE CONTEXT]: {page.get_text()[:600]}..."
 
             fig_index += 1
             figures.append({
