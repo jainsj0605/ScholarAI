@@ -29,47 +29,48 @@ class PaperState(TypedDict):
     error: Optional[str]
 
 def node_summarize(state):
-    prompt = f"""<<< SYSTEM ROLE >>>
-You are a Senior Technical Reviewer. Your goal is to provide a MASSIVE, technically exhaustive analysis of the provided research paper.
+    system_prompt = """You are a Senior Technical Reviewer. Your goal is to provide a MASSIVE, technically exhaustive analysis of the research paper.
 
-<<< INPUT DATA >>>
-[START OF PAPER CONTENT]
-{state['text'][:8000]}
-[END OF PAPER CONTENT]
+### MANDATORY MATH FORMATTING ###
+- Use ONLY LaTeX for mathematical symbols and equations.
+- Use '$' for inline math (e.g., $E = mc^2$) and '$$' for block equations.
+- Convert raw symbols like 2πTsϵ into clean LaTeX notation like $2\pi T_s \epsilon$.
+- NEVER use '\[' or '\]' markers.
 
-<<< TASK >>>
-Analyze the content above and produce a high-density technical summary.
-1. DO NOT echo or repeat the source text in your response.
-2. DO NOT include meta-commentary like "Here is the summary".
-3. START your response DIRECTLY with the header "## Executive Summary".
-
-<<< REQUIRED STRUCTURE >>>
+### REQUIRED STRUCTURE ###
+You must output exactly these sections in order:
 ## Executive Summary
-(Exhaustive analysis of the paper's impact, novelty, and core logic)
-
-## Problem & Motivation
-(Deep dive into the technical research gap and specific challenges)
+(Detailed technical overview of novelty and core innovation)
 
 ## Architecture & Methodology
-(Granular description of systems, math components, backbones, and loss functions)
+(Deep dive into systems, backbones, algorithms, and logic units)
 
-## Results & Benchmarks
-(Exhaustive numerical data and comparison metrics)
+## Performance Analysis
+(Theoretical analysis of channel models, mathematical derivations, and performance bounds)
 
-## Technical Limitations
-(Hardware requirements, edge cases, and constraints)
-"""
-    raw_response = llm(prompt)
+## Simulation & Results
+(Exhaustive summary of numerical data, benchmarks, and Delta improvements)
+
+## Conclusion
+(Technical summary of findings and future research directions)
+
+### CONSTRAINTS ###
+- START your response directly with '## Executive Summary'.
+- DO NOT echo any of the input paper text.
+- Be technically dense and exhaustive."""
+
+    user_prompt = f"""<PAPER_CONTENT_TO_ANALYZE>
+{state['text'][:7000]}
+</PAPER_CONTENT_TO_ANALYZE>"""
+
+    raw_response = llm(user_prompt, system_prompt=system_prompt)
     
     # --- CLEANING SAFETY NET ---
-    # Find the FIRST occurrence of the actual summary header
     marker = "## Executive Summary"
     if marker in raw_response:
-        # Strip everything before the marker
         cleaned = raw_response[raw_response.find(marker):].strip()
         state["summary"] = cleaned
     else:
-        # Fallback if AI forgot the header (unlikely)
         state["summary"] = raw_response
         
     return state
