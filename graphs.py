@@ -29,32 +29,35 @@ class PaperState(TypedDict):
     error: Optional[str]
 
 def node_summarize(state):
-    prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer
-CONSTRAINTS: Provide a MASSIVE TECHNICAL ANALYSIS. Avoid brief bullet points.
-Use exhaustive analytical paragraphs to describe architecture, methodology, and theoretical foundations.
-MANDATORY: If specific decimal scores, benchmarks, or mathematical components are found in the text, you must include them. DO NOT invent or hallucinate metrics, formulas, or scores that are not explicitly stated in the paper.
+    prompt = f"""<<< SYSTEM ROLE >>>
+You are a Senior Technical Reviewer. Your goal is to provide a MASSIVE, technically exhaustive analysis of the provided research paper.
 
+<<< INPUT DATA >>>
+[START OF PAPER CONTENT]
+{state['text'][:8000]}
+[END OF PAPER CONTENT]
+
+<<< TASK >>>
+Analyze the content above and produce a high-density technical summary.
+1. DO NOT echo or repeat the source text in your response.
+2. DO NOT include meta-commentary like "Here is the summary".
+3. START your response DIRECTLY with the header "## Executive Summary".
+
+<<< REQUIRED STRUCTURE >>>
 ## Executive Summary
-(Exhaustive high-level analysis of impact and novelty)
+(Exhaustive analysis of the paper's impact, novelty, and core logic)
 
 ## Problem & Motivation
-(Deep dive into the research gap and dataset challenges)
+(Deep dive into the technical research gap and specific challenges)
 
 ## Architecture & Methodology
-(Granular description of backbones, attention mechanisms, loss functions, and inference blocks)
-
-## Theoretical Contributions
-(Detailed analysis of novel theorems, proofs, or conceptual shifts)
+(Granular description of systems, math components, backbones, and loss functions)
 
 ## Results & Benchmarks
-(Exhaustive numerical results on every dataset mentioned, including delta comparison)
+(Exhaustive numerical data and comparison metrics)
 
-## Limitations
-(Technical constraints, edge cases, and hardware requirements)
-
-### PAPER TEXT DATA ###
-{state['text'][:8000]}
+## Technical Limitations
+(Hardware requirements, edge cases, and constraints)
 """
     state["summary"] = llm(prompt)
     return state
