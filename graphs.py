@@ -497,40 +497,86 @@ Return a VALID JSON array ONLY.
 """
     raw = llm(prompt, disable_failsafe=True)
     try:
-        # Step 1: Strip markdown code fences
-        raw_clean = re.sub(r'```(?:json)?', '', raw).strip().rstrip('`').strip()
-
-        # Step 2: Try to parse directly first (cleanest case)
+        # Step 1: Aggressive Cleanup - isolate the array
+        # This handles cases where the LLM adds text before/after the JSON
+        start = raw.find('[')
+        end = raw.rfind(']')
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("No JSON array structure found in response.")
+        
+        raw_json = raw[start:end+1]
+        
+        # Step 2: Fix common LLM JSON errors (unescaped newlines inside strings)
+        # We replace actual newlines within the JSON block with spaces to prevent parser crashes
+        # but we preserve the \n escape sequences.
+        raw_json = raw_json.replace('\n', ' ').replace('\r', '')
+        
+        # Step 3: Try standard parse
         try:
-            edits = json.loads(raw_clean)
-        except Exception:
-            # Step 3: Find the FIRST '[' and LAST ']' to isolate the JSON array
-            start = raw_clean.find('[')
-            end = raw_clean.rfind(']')
-            if start != -1 and end != -1 and end > start:
-                edits = json.loads(raw_clean[start:end+1])
-            else:
-                raise ValueError("No JSON array found in response.")
+            edits = json.loads(raw_json)
+        except json.JSONDecodeError:
+            # Step 4: Hyper-Robust Fallback - Regex-based object extraction
+            # This finds individual { } objects even if the outer array is broken
+            obj_pattern = r'\{[^{}]*?"section":.*?"rewritten":.*?\}'
+            found_objs = re.findall(obj_pattern, raw_json, re.DOTALL)
+            
+            edits = []
+            for obj_str in found_objs:
+                try:
+                    # Clean the individual object string and try to parse it
+                    # This often fixes trailing commas or missing closing brackets
+                    clean_obj = obj_str.strip()
+                    if not clean_obj.endswith('}'): clean_obj += '}'
+                    edits.append(json.loads(clean_obj))
+                except:
+                    continue
+            
+            if not edits:
+                raise ValueError("Could not extract any valid objects from JSON.")
 
-        # Step 4: Deduplicate by section name
+        # Step 5: Clean and Deduplicate
         unique_edits = []
         seen_sections = set()
         for ed in edits:
-            if not isinstance(ed, dict):
-                continue
-            sec = ed.get("section", "General")
-            if sec not in seen_sections:
-                unique_edits.append(ed)
+            if not isinstance(ed, dict): continue
+            
+            sec = ed.get("section", "Technical Improvement").strip()
+            orig = ed.get("original", "See paper...").strip()
+            rewr = ed.get("rewritten", "").strip()
+            
+            if rewr and sec not in seen_sections:
+                unique_edits.append({
+                    "section": sec,
+                    "original": orig,
+                    "rewritten": rewr
+                })
                 seen_sections.add(sec)
+        
         state["edits"] = unique_edits
 
     except Exception as e:
-        # Graceful fallback — show the raw text in a clean card instead of dumping it
-        state["edits"] = [{
-            "section": "Rewrite Output (Unformatted)",
-            "original": "The AI returned content that could not be parsed as JSON.",
-            "rewritten": raw_clean if 'raw_clean' in locals() else raw
-        }]
+        # Step 6: Final Safety Net - Split by markers if JSON is totally destroyed
+        # We try to at least provide some structure rather than a single block
+        sections = re.split(r'\"section\":', raw)
+        if len(sections) > 1:
+            fallback_edits = []
+            for s in sections[1:]:
+                name_match = re.search(r'\"(.*?)\"', s)
+                name = name_match.group(1) if name_match else "Improvement"
+                content_match = re.search(r'\"rewritten\":\s*\"(.*?)\"', s, re.DOTALL)
+                content = content_match.group(1) if content_match else s
+                fallback_edits.append({
+                    "section": name,
+                    "original": "Partial match",
+                    "rewritten": content.replace('\\n', '\n').strip()
+                })
+            state["edits"] = fallback_edits
+        else:
+            state["edits"] = [{
+                "section": "Rewrite Outcome",
+                "original": "The AI provided complex text that required manual splitting.",
+                "rewritten": raw
+            }]
     return state
 
 def node_qa(state):
