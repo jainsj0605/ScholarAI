@@ -63,8 +63,15 @@ if "vision_dict" not in st.session_state:
 
 # --- SIDEBAR: Upload ---
 with st.sidebar:
-    st.header("Upload Paper")
-    uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
+    st.header("📂 Data Ingestion")
+    uploaded_file = st.file_uploader("Upload Research Paper (PDF)", type="pdf")
+    
+    if st.button("🔄 Reset Session", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+        
+    st.divider()
 
     if uploaded_file and st.button("Analyze Paper", type="primary", use_container_width=True):
         with st.spinner("Parsing PDF & running AI analysis..."):

@@ -53,17 +53,14 @@ def llm(prompt: str, system_prompt: str = None, model: str = None, max_chars: in
             err_msg = str(e).lower()
             last_error = str(e)
             
-            # Detection: TPM (Per Minute) vs TPD (Per Day)
+            # Detection: TPM (Per Minute) vs TPD (Per Day) vs 503 (Overloaded)
             is_tpm_limit = ("429" in err_msg or "rate limit" in err_msg) and ("tpm" in err_msg or "per minute" in err_msg or "rpm" in err_msg)
             is_tpd_limit = "tokens per day" in err_msg or "daily limit" in err_msg or "tpd" in err_msg
+            is_overloaded = "503" in err_msg or "overloaded" in err_msg or "service unavailable" in err_msg
             is_context_limit = "413" in err_msg or "context length" in err_msg
             
-            if is_tpd_limit and not model:
-                # Daily limit reached for this tier, definitely move to next
-                continue
-            elif is_tpm_limit and not model:
-                # Per-minute limit reached. We could wait, but it's faster to move to the next tier 
-                # which has its own separate per-minute bucket.
+            if (is_tpd_limit or is_tpm_limit or is_overloaded) and not model:
+                # Issue with this tier (limit or overload), move to next
                 continue
             elif is_context_limit:
                 if len(messages[-1]["content"]) > 10000:
@@ -153,12 +150,30 @@ def _get_surrounding_text(page, img_rect, window_words=100):
     return f"[TEXT ABOVE FIGURE]: {context_above}\n\n[TEXT BELOW FIGURE]: {context_below}"
 
 
+def cleanup_temp_files():
+    """Wipes orphaned figure snapshots from the temp directory to prevent storage leaks."""
+    try:
+        tmp_dir = tempfile.gettempdir()
+        # Only target files created by this project (starting with fig_ or temp_)
+        files = [f for f in os.listdir(tmp_dir) if f.startswith("fig_") or f.startswith("temp_")]
+        for f in files:
+            try:
+                os.remove(os.path.join(tmp_dir, f))
+            except:
+                pass # Already deleted or in use
+    except Exception as e:
+        print(f"Cleanup warning: {e}")
+
+
 def parse_pdf(file_path):
     """Parses PDF and returns:
     - full text (str)
     - list of figure dicts, each containing:
         path, caption, page_num, context (surrounding text)
     """
+    # Self-clean previous snapshots before starting new analysis
+    cleanup_temp_files()
+    
     doc = fitz.open(file_path)
     full_text = ""
     page_texts = []
