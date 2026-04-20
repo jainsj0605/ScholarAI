@@ -12,6 +12,15 @@ upload_graph, compare_graph, improve_graph, qa_graph = build_graphs()
 # =========================
 st.set_page_config(page_title="ScholarAI", layout="wide")
 
+def check_limits(state_dict):
+    """Checks for the CRITICAL daily limit message in any state field."""
+    for val in state_dict.values():
+        if isinstance(val, str) and "CRITICAL: All AI models have reached their daily token limits" in val:
+            st.error("🚫 **Daily Token Limit Reached**")
+            st.info("The Groq Free Tier has reached its daily ceiling for all available models (120B, 70B, and 8B).", icon="ℹ️")
+            st.warning("Please try again in 24 hours or sign in with a different API key to continue your research.", icon="⚠️")
+            st.stop()
+
 # Custom CSS for dark theme
 st.markdown("""
 <style>
@@ -67,6 +76,7 @@ with st.sidebar:
                 "edits": [], "query": "", "answer": "", "error": None
             }
             result = upload_graph.invoke(init)
+            check_limits(result)
 
             st.session_state.text = text
             st.session_state.images = images
@@ -117,6 +127,7 @@ with tab2:
                         "edits": [], "query": query, "answer": "", "error": None
                     }
                     result = qa_graph.invoke(init)
+                    check_limits(result)
                     st.markdown(result["answer"])
                     st.session_state.qa_history.append({"q": query, "a": result["answer"]})
 
@@ -135,6 +146,7 @@ with tab3:
                     "edits": [], "query": "", "answer": "", "error": None
                 }
                 result = compare_graph.invoke(init)
+                check_limits(result)
                 st.session_state.papers = result["papers"]
                 st.session_state.comp_problem = result["comp_problem"]
                 st.session_state.comp_method = result["comp_method"]
@@ -200,6 +212,7 @@ with tab4:
                     "query": "", "answer": "", "error": None
                 }
                 result = improve_graph.invoke(init)
+                check_limits(result)
                 st.session_state.improvements = result["improvements"]
                 st.session_state.edits = result["edits"]
 

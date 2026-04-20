@@ -4,7 +4,7 @@ from typing import TypedDict, List, Optional
 import streamlit as st
 from langgraph.graph import StateGraph, END
 
-from config import client, VISION_MODEL
+from config import client, VISION_MODEL, FAST_MODEL
 from utils import llm, distill_context, retrieve, encode_image, store_figure_description, rerank_papers, deduplicate_chunks
 from api_search import search_arxiv, search_crossref, search_openalex, search_semantic_scholar, fetch_arxiv_fulltext, fetch_crossref_fulltext
 
@@ -164,7 +164,7 @@ Be precise. Do not hallucinate data not visible in the figure."""
 
 def node_extract_topic(state):
     prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
-    state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
+    state["topic"] = llm(prompt, model=FAST_MODEL).strip().replace('"', '').replace("'", "")
     return state
 
 def node_arxiv_search(state):
@@ -543,7 +543,7 @@ def node_qa(state):
 Context: {context}
 Question: {state['query']}
 Answer:"""
-    state["answer"] = llm(prompt)
+    state["answer"] = llm(prompt, model=FAST_MODEL)
     return state
 
 @st.cache_resource

@@ -7,13 +7,13 @@ import faiss
 import numpy as np
 import streamlit as st
 
-from config import client, TEXT_MODEL, FALLBACK_MODEL, embed_model, dimension
+from config import client, TEXT_MODEL, FALLBACK_MODEL, FAST_MODEL, MODEL_TIERS, embed_model, dimension
 
 def encode_image(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-def llm(prompt: str, system_prompt: str = None, model: str = TEXT_MODEL, max_chars: int = 100000, disable_failsafe: bool = False) -> str:
+def llm(prompt: str, system_prompt: str = None, model: str = None, max_chars: int = 100000, disable_failsafe: bool = False) -> str:
     # Truncate prompt to prevent 413 or TPM errors
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[Context truncated due to size limits...]"
@@ -23,43 +23,58 @@ def llm(prompt: str, system_prompt: str = None, model: str = TEXT_MODEL, max_cha
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
     
-    current_model = model
-    try:
-        # Initial Attempt
-        res = client.chat.completions.create(
-            model=current_model,
-            messages=messages,
-            max_tokens=4000,
-            temperature=0.3
-        )
-        content = res.choices[0].message.content
-        # Failsafe: Strip accidental instruction leakage
-        content = re.sub(r'^<<< SYSTEM INSTRUCTIONS >>>', '', content, flags=re.MULTILINE).strip()
-        content = re.sub(r'^### .* ###', '', content, flags=re.MULTILINE).strip()
-        
-        # Hard Failsafe: Ensure it ends on a full sentence
-        if not disable_failsafe and not content.strip().endswith(('.', '!', '?', ']', '\"', '\'')):
-            last_period = max(content.rfind('.'), content.rfind('!'), content.rfind('?'))
-            if last_period != -1:
-                content = content[:last_period + 1] + "\n\n[Section complete]"
-        return content
-    except Exception as e:
-        # Fallback Logic: Only switch if the primary hits a rate limit
-        err_msg = str(e).lower()
-        if "429" in err_msg or "limit" in err_msg or "413" in err_msg:
-            try:
-                # When falling back, use a smaller max_chars if it was a 413
-                fallback_limit = 10000 if "413" in err_msg else max_chars
-                res = client.chat.completions.create(
-                    model=FALLBACK_MODEL,
-                    messages=[{"role": "user", "content": prompt[:fallback_limit]}],
-                    max_tokens=4000,
-                    temperature=0.3
-                )
-                return res.choices[0].message.content
-            except Exception as e2:
-                return f"Error (Both Models Busy/Limited): {e2}"
-        return f"Error: {e}"
+    # Tiered Fallback Logic (120B -> 70B -> 8B)
+    # If a specific model is requested (e.g. 8B for light tasks), we try ONLY that model.
+    # Otherwise, we try all tiers in order.
+    tiers_to_try = [model] if model else MODEL_TIERS
+    
+    last_error = ""
+    for current_model in tiers_to_try:
+        try:
+            res = client.chat.completions.create(
+                model=current_model,
+                messages=messages,
+                max_tokens=4000,
+                temperature=0.3
+            )
+            content = res.choices[0].message.content
+            # Failsafe: Strip accidental instruction leakage
+            content = re.sub(r'^<<< SYSTEM INSTRUCTIONS >>>', '', content, flags=re.MULTILINE).strip()
+            content = re.sub(r'^### .* ###', '', content, flags=re.MULTILINE).strip()
+            
+            # Hard Failsafe: Ensure it ends on a full sentence
+            if not disable_failsafe and not content.strip().endswith(('.', '!', '?', ']', '\"', '\'')):
+                last_period = max(content.rfind('.'), content.rfind('!'), content.rfind('?'))
+                if last_period != -1:
+                    content = content[:last_period + 1] + "\n\n[Section complete]"
+            return content
+            
+        except Exception as e:
+            err_msg = str(e).lower()
+            last_error = str(e)
+            
+            # 429 Detection: Both TPM (per minute) and TPD (per day/tokens per day)
+            is_rate_limit = "429" in err_msg or "rate limit" in err_msg
+            is_daily_exhausted = "tokens per day" in err_msg or "daily limit" in err_msg
+            is_context_limit = "413" in err_msg or "context length" in err_msg
+            
+            if (is_rate_limit or is_daily_exhausted) and not model:
+                # Fall through to next tier unless a specific model was requested
+                continue
+            elif is_context_limit:
+                # If content is too large, it likely won't fit in the next model either, 
+                # but we can try a smaller chunk
+                if len(messages[-1]["content"]) > 10000:
+                    messages[-1]["content"] = messages[-1]["content"][:10000] + "..."
+                continue
+            else:
+                # Unknown error, stop and report
+                return f"Error: {last_error}"
+
+    # If we are here, all attempted models failed
+    if "tokens per day" in last_error.lower() or "limit" in last_error.lower():
+        return "CRITICAL: All AI models have reached their daily token limits. Please try again in 24 hours or use a different API key."
+    return f"Error (All Tiers Exhausted): {last_error}"
 
 def distill_context(context: str) -> str:
     """Extracts critical technical points including Architecture, Optimization, and Innovation."""

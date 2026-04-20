@@ -11,9 +11,10 @@ load_dotenv()
 # =========================
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
 client        = Groq(api_key=GROQ_API_KEY)
-TEXT_MODEL    = "llama-3.3-70b-versatile"
+TEXT_MODEL    = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "llama-3.3-70b-versatile"
 FAST_MODEL    = "llama-3.1-8b-instant"
+MODEL_TIERS   = [TEXT_MODEL, FALLBACK_MODEL, FAST_MODEL]
 VISION_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 # Cache the heavy model so it loads only once
