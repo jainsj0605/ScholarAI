@@ -164,7 +164,7 @@ Be precise. Do not hallucinate data not visible in the figure."""
 
 def node_extract_topic(state):
     prompt = f"Extract the main research topic (3-4 essential terms) from this summary. Return ONLY the keywords separated by spaces. No quotes, no preamble, and no symbols.\n\nSummary:\n{state['summary']}"
-    state["topic"] = llm(prompt, model=FAST_MODEL).strip().replace('"', '').replace("'", "")
+    state["topic"] = llm(prompt).strip().replace('"', '').replace("'", "")
     return state
 
 def node_arxiv_search(state):
@@ -543,7 +543,7 @@ def node_qa(state):
 Context: {context}
 Question: {state['query']}
 Answer:"""
-    state["answer"] = llm(prompt, model=FAST_MODEL)
+    state["answer"] = llm(prompt)
     return state
 
 @st.cache_resource
