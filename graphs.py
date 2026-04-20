@@ -420,27 +420,24 @@ def node_improve(state):
     
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Senior Technical Editor
-TASK: Identify exactly 5 SPECIFIC weak sections in the paper that need technical improvement.
+TASK: Identify EXACTLY 5 DIFFERENT and SPECIFIC weak sections in the paper that need technical improvement. 
 
 ### RULES FOR SPECIFICITY (MANDATORY) ###
-- For each of the 5 weaknesses, you MUST quote the EXACT weak sentence from the paper using quotation marks.
+- You MUST find exactly 5 separate weaknesses. 
+- For each weakness, you MUST quote the EXACT weak sentence from the paper using quotation marks.
 - Explain precisely WHY that sentence is weak (e.g., "missing justification for parameter X", "generic claims without benchmark").
 - Provide a LONG, CONCRETE technical fix (e.g., "add ablation study comparing method X against baseline Y").
 - BANNED: Do not use generic feedback like "improve clarity" or "add more details".
-- BANNED: Do not fabricate weaknesses. If a section is strong, find the next most relevant area for improvement.
+- DO NOT combine improvements. List them as 1, 2, 3, 4, 5.
 
 ### STRUCTURE ###
-Each section heading (e.g. ## Methodology) must contain:
-1. "Quoted weak text"
-2. Technical reason it is weak.
-3. Detailed, actionable step-by-step fix.
+1. ## [Weakness 1 Name]
+   - "Quoted weak text"
+   - Technical reason: ...
+   - Actionable fix: ...
 
-### CONTEXT ###
-[COMPARATIVE ANALYSIS GAPS]
-{comp_context}
-
-[PAPER SNIPPETS]
-{context_text}
+2. ## [Weakness 2 Name]
+   ... and so on for all 5.
 
 ## Improvement Strategy
 """
@@ -468,24 +465,26 @@ def node_rewrite(state):
 
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Author
-TASK: Rewrite the weak sections identified by the editor to sound exactly like the original authors wrote them.
+TASK: Rewrite the 5 weak sections identified by the editor to sound exactly like the original authors wrote them.
 
 ### RULES FOR AUTHENTICITY (MANDATORY) ###
-- For each rewritten section, provide at least 2-3 technical paragraphs.
+- You MUST provide EXACTLY 5 objects in the JSON array. ONE FOR EACH IMPROVEMENT.
+- For each rewritten section, provide at least 2-3 dense technical paragraphs.
 - Use the EXACT technical terminology, variable names, and method names from the paper.
-- Use REAL numbers and metrics found in the paper (DO NOT invent statistics).
-- Ensure the tone matches the original professional scientific style.
+- Use REAL numbers and metrics found in the paper.
 - BANNED: Placeholders like "[add result here]" or "[insert figure]".
 
 ### OUTPUT FORMAT (MANDATORY) ###
-Return a VALID JSON array ONLY.
+Return a VALID JSON array ONLY. Do not add any preamble or conversational text.
 [
   {{
-    "section": "Precise Section Name",
-    "original": "EXACT 100-150 character snippet of the original text to locate it",
-    "rewritten": "The complete improved technical text for the section (at least 2 paragraphs)"
-  }}
+    "section": "Precise Section Name 1",
+    "original": "EXACT 100-150 character snippet of the original text",
+    "rewritten": "The complete improved technical text (at least 2 paragraphs)"
+  }},
+  ... (Repeat for all 5 sections)
 ]
+
 
 ### ANALYSIS OF WEAKNESSES ###
 {state['improvements']}
