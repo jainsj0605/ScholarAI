@@ -13,7 +13,7 @@ def encode_image(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-def llm(prompt: str, system_prompt: str = None, model: str = TEXT_MODEL, max_chars: int = 100000, disable_failsafe: bool = False) -> str:
+def llm(prompt: str, system_prompt: str = None, model: str = TEXT_MODEL, max_chars: int = 24000, disable_failsafe: bool = False) -> str:
     # Truncate prompt to prevent 413 or TPM errors
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[Context truncated due to size limits...]"
@@ -210,24 +210,8 @@ def parse_pdf(file_path):
 
     return full_text, figures
 
-def chunk_text(text, size=500, overlap=0):
-    """Splits text into fixed-size chunks with optional overlap."""
-    chunks = []
-    for i in range(0, len(text), size - overlap):
-        chunk = text[i:i + size]
-        if len(chunk) > 50: # Skip tiny fragments
-            chunks.append(chunk)
-    return chunks
-
-def deduplicate_chunks(chunks):
-    """Removes duplicate chunks while preserving order."""
-    seen = set()
-    unique = []
-    for c in chunks:
-        if c not in seen:
-            unique.append(c)
-            seen.add(c)
-    return unique
+def chunk_text(text, size=500):
+    return [text[i:i+size] for i in range(0, len(text), size)]
 
 def rerank_papers(original_summary, papers, top_k=6):
     """Uses the embedding model to sort papers by semantic similarity to the original summary."""
