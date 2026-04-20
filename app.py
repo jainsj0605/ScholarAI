@@ -13,12 +13,19 @@ upload_graph, compare_graph, improve_graph, qa_graph = build_graphs()
 st.set_page_config(page_title="ScholarAI", layout="wide")
 
 def check_limits(state_dict):
-    """Checks for the CRITICAL daily limit message in any state field."""
+    """Checks for the CRITICAL daily limit message or temporary NOTICE in any state field."""
     for val in state_dict.values():
-        if isinstance(val, str) and "CRITICAL: All AI models have reached their daily token limits" in val:
+        if not isinstance(val, str): continue
+        
+        if "CRITICAL: All AI models have reached their daily token limits" in val:
             st.error("🚫 **Daily Token Limit Reached**")
             st.info("The Groq Free Tier has reached its daily ceiling for all available models (120B, 70B, and 8B).", icon="ℹ️")
             st.warning("Please try again in 24 hours or sign in with a different API key to continue your research.", icon="⚠️")
+            st.stop()
+            
+        elif "NOTICE: AI models are temporarily busy" in val:
+            st.warning("⏳ **AI Models Busy (Rate Limit)**")
+            st.info("You are submitting requests too quickly for the free tier. Please wait **60 seconds** and click the button again.", icon="⏱️")
             st.stop()
 
 # Custom CSS for dark theme

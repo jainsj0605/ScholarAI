@@ -53,27 +53,31 @@ def llm(prompt: str, system_prompt: str = None, model: str = None, max_chars: in
             err_msg = str(e).lower()
             last_error = str(e)
             
-            # 429 Detection: Both TPM (per minute) and TPD (per day/tokens per day)
-            is_rate_limit = "429" in err_msg or "rate limit" in err_msg
-            is_daily_exhausted = "tokens per day" in err_msg or "daily limit" in err_msg
+            # Detection: TPM (Per Minute) vs TPD (Per Day)
+            is_tpm_limit = ("429" in err_msg or "rate limit" in err_msg) and ("tpm" in err_msg or "per minute" in err_msg or "rpm" in err_msg)
+            is_tpd_limit = "tokens per day" in err_msg or "daily limit" in err_msg or "tpd" in err_msg
             is_context_limit = "413" in err_msg or "context length" in err_msg
             
-            if (is_rate_limit or is_daily_exhausted) and not model:
-                # Fall through to next tier unless a specific model was requested
+            if is_tpd_limit and not model:
+                # Daily limit reached for this tier, definitely move to next
+                continue
+            elif is_tpm_limit and not model:
+                # Per-minute limit reached. We could wait, but it's faster to move to the next tier 
+                # which has its own separate per-minute bucket.
                 continue
             elif is_context_limit:
-                # If content is too large, it likely won't fit in the next model either, 
-                # but we can try a smaller chunk
                 if len(messages[-1]["content"]) > 10000:
                     messages[-1]["content"] = messages[-1]["content"][:10000] + "..."
                 continue
             else:
-                # Unknown error, stop and report
+                # Other errors (401, 500, etc.)
                 return f"Error: {last_error}"
 
     # If we are here, all attempted models failed
-    if "tokens per day" in last_error.lower() or "limit" in last_error.lower():
+    if "tokens per day" in last_error.lower() or "tpd" in last_error.lower() or "daily" in last_error.lower():
         return "CRITICAL: All AI models have reached their daily token limits. Please try again in 24 hours or use a different API key."
+    elif "rate limit" in last_error.lower() or "429" in last_error.lower():
+        return "NOTICE: AI models are temporarily busy (Rate Limit). Please wait 60 seconds and try again."
     return f"Error (All Tiers Exhausted): {last_error}"
 
 def distill_context(context: str) -> str:
