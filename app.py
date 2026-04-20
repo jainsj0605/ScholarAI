@@ -105,8 +105,28 @@ tab1, tab5, tab2, tab3, tab4 = st.tabs(["Summary", "Figures", "Q&A", "Compare", 
 # --- TAB 1: Summary ---
 with tab1:
     if st.session_state.summary:
-        st.markdown(st.session_state.summary)
-        pass
+        # Robust splitting by '## ' headers
+        import re
+        sections = re.split(r'##\s+', st.session_state.summary)
+        
+        for section in sections:
+            if not section.strip(): continue
+            lines = section.strip().split('\n', 1)
+            header = lines[0].strip()
+            content = lines[1].strip() if len(lines) > 1 else ""
+            
+            # Map headers to icons for a professional look
+            icons = {
+                "Executive Summary": "📋",
+                "Architecture & Methodology": "🏗️",
+                "Performance Analysis": "📈",
+                "Simulation & Results": "🔬",
+                "Conclusion": "🏁"
+            }
+            icon = icons.get(header, "📝")
+            
+            with st.expander(f"{icon} {header}", expanded=True):
+                st.markdown(content)
     else:
         st.info("👈 Upload a PDF in the sidebar to get started.")
 

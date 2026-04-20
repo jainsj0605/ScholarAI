@@ -61,7 +61,7 @@ def node_summarize(state):
 
 ### REQUIRED STRUCTURE ###
 ## Executive Summary
-(One sentence TLDR: Must include specific problem + exact method name + top result WITH a number. Followed by 2 detailed paragraphs on novelty and core innovation.)
+(Provide 2-3 detailed paragraphs highlighting the core innovation, novelty, and exact top-line result. Do NOT use the prefix 'TL;DR'.)
 
 ## Architecture & Methodology
 (Deep dive into the EXACT proposed algorithm/framework. Provide at least 3 detailed paragraphs explaining the systems, backbones, and mathematical logic unit by unit.)
@@ -73,7 +73,12 @@ def node_summarize(state):
 (Exhaustive Benchmarking: List EVERY numerical metric, comparison baseline, and performance delta. Explain the significance of the data in multiple paragraphs.)
 
 ## Conclusion
-(Technical summary of findings, specific known constraints, and future research directions mentioned by authors.)"""
+(Technical summary of findings, specific known constraints, and future research directions.)
+
+### FORMATTING RULES ###
+- Use ONLY '## ' for section headers.
+- BANNED: Never use horizontal separators like '---' or '***'.
+- BANNED: Never use bolding inside the section headers."""
 
     user_prompt = f"""<PAPER_CONTEXT_TO_ANALYZE>
 {context_text}
