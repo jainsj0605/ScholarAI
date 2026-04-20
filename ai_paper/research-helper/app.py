@@ -164,7 +164,26 @@ def semantic_rerank(query_summary, candidate_list):
 # LANGGRAPH NODES
 # =========================
 def node_summarize(state: PaperState) -> PaperState:
-    prompt = f"""Analyze this research paper and provide a structured summary using markdown:
+    # --- RAG-based full-document coverage ---
+    # Instead of blindly truncating to the first 3000 chars (which only covers
+    # ~1.5 pages), we semantically retrieve the most relevant chunks for each
+    # major section so the LLM sees content from the entire paper.
+    section_queries = [
+        "abstract problem statement motivation",
+        "methodology approach proposed method",
+        "results experiments evaluation metrics",
+        "conclusion limitations future work",
+    ]
+    seen, context_parts = set(), []
+    for q in section_queries:
+        for chunk in retrieve(q, k=3):
+            if chunk not in seen:
+                seen.add(chunk)
+                context_parts.append(chunk)
+    context = "\n\n".join(context_parts)
+
+    prompt = f"""Analyze this research paper and provide a structured summary using markdown.
+The text below is sampled from across the full paper (abstract, method, results, conclusion).
 
 ## TLDR
 One sentence summary.
@@ -181,8 +200,8 @@ Key results and metrics.
 ## Limitations
 Known limitations.
 
-Paper text:
-{state['text'][:3000]}"""
+Paper text (full-document coverage via semantic retrieval):
+{context}"""
     state["summary"] = llm(prompt)
     return state
 
@@ -339,11 +358,28 @@ What does the original do well?"""
 
 def node_improve(state: PaperState) -> PaperState:
     """Identify weak sections and explain what needs improvement."""
-    full_text = state["text"]
-    prompt = f"""You are an expert research advisor. Read this paper and identify sections that need improvement.
+    # --- RAG-based full-document coverage ---
+    # Retrieve chunks specifically relevant to the sections we want to improve,
+    # covering the whole paper rather than just the first 4000 chars.
+    improve_queries = [
+        "abstract introduction background",
+        "methodology approach proposed solution",
+        "results experiments analysis discussion",
+        "conclusion limitations future scope",
+    ]
+    seen, context_parts = set(), []
+    for q in improve_queries:
+        for chunk in retrieve(q, k=3):
+            if chunk not in seen:
+                seen.add(chunk)
+                context_parts.append(chunk)
+    context = "\n\n".join(context_parts)
 
-Paper text:
-{full_text[:4000]}
+    prompt = f"""You are an expert research advisor. Read this paper and identify sections that need improvement.
+The text below covers the full paper via semantic retrieval.
+
+Paper text (full-document coverage):
+{context}
 
 Comparative analysis with recent work:
 {state['comparison'][:1500]}
@@ -355,12 +391,28 @@ Use markdown with section headings like ## Abstract, ## Introduction, ## Methodo
 
 def node_rewrite_sections(state: PaperState) -> PaperState:
     """Rewrite each weak section. Return structured edits with original and rewritten text."""
-    full_text = state["text"]
+    # --- RAG-based full-document coverage ---
+    # Retrieve chunks for each section flagged in the improvement analysis so
+    # the LLM can find and quote verbatim snippets from the actual paper text.
+    rewrite_queries = [
+        "abstract introduction",
+        "methodology proposed method",
+        "results experiments metrics",
+        "conclusion limitations",
+    ]
+    seen, context_parts = set(), []
+    for q in rewrite_queries:
+        for chunk in retrieve(q, k=3):
+            if chunk not in seen:
+                seen.add(chunk)
+                context_parts.append(chunk)
+    context = "\n\n".join(context_parts)
 
     prompt = f"""You are rewriting weak sections of a research paper to improve quality.
+The paper text below is sampled from across the full paper via semantic retrieval.
 
-Full paper text:
-{full_text[:5000]}
+Full paper text (full-document coverage):
+{context}
 
 Improvement analysis:
 {state['improvements'][:1500]}
