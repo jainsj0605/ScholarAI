@@ -9,7 +9,11 @@ load_dotenv()
 # =========================
 # CONFIG
 # =========================
-GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
+if "GROQ_API_KEY" in st.secrets:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+else:
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
 client        = Groq(api_key=GROQ_API_KEY)
 TEXT_MODEL    = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "llama-3.3-70b-versatile"
