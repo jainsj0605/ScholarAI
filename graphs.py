@@ -497,22 +497,40 @@ Return a VALID JSON array ONLY.
 """
     raw = llm(prompt, disable_failsafe=True)
     try:
-        raw_clean = re.sub(r'```(?:json)?', '', raw).strip()
-        m = re.search(r'\[.*\]', raw_clean, re.DOTALL)
-        if m:
-            edits = json.loads(m.group())
-            unique_edits = []
-            seen_sections = set()
-            for ed in edits:
-                sec = ed.get("section", "General")
-                if sec not in seen_sections:
-                    unique_edits.append(ed)
-                    seen_sections.add(sec)
-            state["edits"] = unique_edits
-        else:
-            state["edits"] = [{"section": "JSON Formatting Error", "original": "The AI failed to format the response as a JSON array.", "rewritten": raw_clean}]
+        # Step 1: Strip markdown code fences
+        raw_clean = re.sub(r'```(?:json)?', '', raw).strip().rstrip('`').strip()
+
+        # Step 2: Try to parse directly first (cleanest case)
+        try:
+            edits = json.loads(raw_clean)
+        except Exception:
+            # Step 3: Find the FIRST '[' and LAST ']' to isolate the JSON array
+            start = raw_clean.find('[')
+            end = raw_clean.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                edits = json.loads(raw_clean[start:end+1])
+            else:
+                raise ValueError("No JSON array found in response.")
+
+        # Step 4: Deduplicate by section name
+        unique_edits = []
+        seen_sections = set()
+        for ed in edits:
+            if not isinstance(ed, dict):
+                continue
+            sec = ed.get("section", "General")
+            if sec not in seen_sections:
+                unique_edits.append(ed)
+                seen_sections.add(sec)
+        state["edits"] = unique_edits
+
     except Exception as e:
-        state["edits"] = [{"section": "JSON Parse Error", "original": f"Exception: {str(e)}", "rewritten": raw}]
+        # Graceful fallback — show the raw text in a clean card instead of dumping it
+        state["edits"] = [{
+            "section": "Rewrite Output (Unformatted)",
+            "original": "The AI returned content that could not be parsed as JSON.",
+            "rewritten": raw_clean if 'raw_clean' in locals() else raw
+        }]
     return state
 
 def node_qa(state):

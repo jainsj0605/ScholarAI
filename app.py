@@ -204,28 +204,31 @@ with tab4:
                 st.session_state.edits = result["edits"]
 
         if st.session_state.improvements:
+            st.markdown("---")
             st.subheader("📋 Improvement Analysis")
+            st.caption("The following weaknesses were identified in the paper with specific evidence and recommended fixes:")
             if "Error" in st.session_state.improvements:
                 st.error(st.session_state.improvements)
             else:
                 st.markdown(st.session_state.improvements)
 
         if st.session_state.edits:
-            st.divider()
-            st.subheader(f"{len(st.session_state.edits)} Sections Rewritten")
-            for ed in st.session_state.edits:
+            st.markdown("---")
+            st.subheader(f"✏️ Rewritten Sections ({len(st.session_state.edits)} improvements)")
+            st.caption("Each weak section has been rewritten to match the original authors' technical style:")
+            for idx, ed in enumerate(st.session_state.edits):
                 title = ed.get('section', 'Unknown Section')
-                with st.expander(f"Section: {title}"):
+                with st.expander(f"#{idx+1} — {title}", expanded=False):
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.caption("ORIGINAL")
+                        st.markdown("**🔴 ORIGINAL (Weak)**")
                         orig = ed.get("original", "")
-                        st.text(orig[:500] + ("..." if len(orig)>500 else ""))
+                        st.info(orig[:600] + ("..." if len(orig) > 600 else ""))
                     with col2:
-                        st.caption("REWRITTEN ✨")
-                        st.markdown(ed.get("rewritten", ""))
+                        st.markdown("**🟢 REWRITTEN (Improved)**")
+                        st.success(ed.get("rewritten", ""))
         elif st.session_state.improvements and "Error" not in st.session_state.improvements:
-             pass # Removed "No specific technical rewrites" message as requested
+            pass
 
 # --- TAB 5: Figures ---
 with tab5:
