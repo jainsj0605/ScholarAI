@@ -108,14 +108,18 @@ def distill_context(context: str) -> str:
     return "\n\n".join(distilled)
 
 def _extract_caption(page, img_rect):
-    """Finds the closest text line directly BELOW an image bounding box."""
-    caption_lines = []
-    # Search a region 80pt below the image for caption text
-    search_rect = fitz.Rect(img_rect.x0, img_rect.y1, img_rect.x1, img_rect.y1 + 80)
+    """Finds the closest text line directly BELOW or ABOVE an image bounding box."""
+    # Search 120pt above and below the image for caption text
+    search_rect = fitz.Rect(img_rect.x0, img_rect.y0 - 120, img_rect.x1, img_rect.y1 + 120)
     words = page.get_text("words", clip=search_rect)
-    if words:
-        caption_lines = [w[4] for w in words]  # word text is index 4
-    return " ".join(caption_lines).strip()
+    
+    # Prioritize words that start with "Fig" or "Figure"
+    all_text = " ".join([w[4] for w in words])
+    fig_match = re.search(r'(Fig\w*\.?\s*\d+.*)', all_text, re.IGNORECASE)
+    if fig_match:
+        return fig_match.group(1).strip()
+        
+    return all_text.strip()[:300]
 
 
 def _get_surrounding_text(page, img_rect, window_words=100):
@@ -153,7 +157,7 @@ def parse_pdf(file_path):
     """Parses PDF and returns:
     - full text (str)
     - list of figure dicts, each containing:
-        path, caption, page_num, context (surrounding text), bytes
+        path, caption, page_num, context (surrounding text)
     """
     doc = fitz.open(file_path)
     full_text = ""
@@ -165,58 +169,67 @@ def parse_pdf(file_path):
 
     figures = []
     fig_index = 0
+    
     for page_idx, page in enumerate(doc):
         page_num = page_idx + 1
         page_text = page_texts[page_idx]
+        
+        # 1. Collect candidate regions from IMAGES
+        candidate_rects = []
+        for img in page.get_image_info():
+            r = img.get("bbox")
+            if r: candidate_rects.append(fitz.Rect(r))
+            
+        # 2. Collect candidate regions from DRAWINGS (Vector plots)
+        # We group nearby drawings into combined rectangles
+        drawings = page.get_drawings()
+        for d in drawings:
+            r = d.get("rect")
+            if r and r.width > 50 and r.height > 50:
+                candidate_rects.append(fitz.Rect(r))
+        
+        # 3. Merge overlapping or very close rectangles to avoid duplicate sub-component captures
+        merged_rects = []
+        if candidate_rects:
+            candidate_rects.sort(key=lambda r: (r.y0, r.x0))
+            current = candidate_rects[0]
+            for i in range(1, len(candidate_rects)):
+                nxt = candidate_rects[i]
+                # Manually check if nxt is close to current (within 30 points)
+                is_close = (nxt.x0 < current.x1 + 30 and nxt.x1 > current.x0 - 30 and
+                            nxt.y0 < current.y1 + 30 and nxt.y1 > current.y0 - 30)
+                
+                if nxt.intersects(current) or is_close:
+                    current = current | nxt # Union
+                else:
+                    merged_rects.append(current)
+                    current = nxt
+            merged_rects.append(current)
 
-        for img in page.get_images(full=True):
-            xref = img[0]
-            base_image = doc.extract_image(xref)
-
-            # Get image bounding rect on the page FIRST for position checks
-            img_rect = None
-            for item in page.get_image_info():
-                if item.get("xref") == xref:
-                    r = item.get("bbox")
-                    if r:
-                        img_rect = fitz.Rect(r)
-                    break
-
-            # --- FILTER 1: Size check (300x300 minimum) ---
-            w = base_image.get("width", 0)
-            h = base_image.get("height", 0)
-            if w < 300 or h < 300:
+        # 4. Final Processing of Valid Regions
+        for rect in merged_rects:
+            # --- FILTER 1: Size check (150px minimum) ---
+            if rect.width < 150 or rect.height < 150:
                 continue
 
             # --- FILTER 2: Aspect ratio check ---
-            if w / max(h, 1) > 4 or h / max(w, 1) > 4:
+            if rect.width / max(rect.height, 1) > 6 or rect.height / max(rect.width, 1) > 6:
                 continue
 
-            # --- FILTER 3: Position check ---
-            # Skip title page completely
-            if page_num == 1:
+            # --- FILTER 3: Position check (Avoid headers/footers) ---
+            if page_num == 1: continue # Skip title page logos
+            page_h = page.rect.height
+            if rect.y0 < 0.05 * page_h or rect.y1 > 0.95 * page_h:
                 continue
-            # Skip if image sits in extreme top/bottom header & footer zones
-            if img_rect:
-                page_h = page.rect.height
-                if img_rect.y0 < 0.08 * page_h or img_rect.y1 > 0.92 * page_h:
-                    continue
 
-            # --- FILTER 4: Caption Extraction (No mandatory labeling) ---
-            # We no longer skip images that don't say "Figure"
-            caption = _extract_caption(page, img_rect) if img_rect else ""
+            # --- CAPTURE: High-Res Snapshot (300 DPI) ---
+            # Using Matrix(3,3) for 3x zoom capture
+            pix = page.get_pixmap(clip=rect, matrix=fitz.Matrix(3, 3))
+            img_path = os.path.join(tempfile.gettempdir(), f"fig_{page_num}_{int(rect.x0)}.png")
+            pix.save(img_path)
 
-            # --- Only Genuine Figures Remain ---
-            img_bytes = base_image["image"]
-            img_path = os.path.join(tempfile.gettempdir(), f"temp_{xref}.png")
-            with open(img_path, "wb") as f:
-                f.write(img_bytes)
-
-            if img_rect:
-                context = _get_surrounding_text(page, img_rect)
-            else:
-                # Fallback if spatial context cannot be determined
-                context = f"[PAGE CONTEXT]: {page.get_text()[:600]}..."
+            caption = _extract_caption(page, rect)
+            context = _get_surrounding_text(page, rect)
 
             fig_index += 1
             figures.append({

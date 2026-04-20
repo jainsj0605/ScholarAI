@@ -90,6 +90,8 @@ def node_summarize(state):
     marker = "## Executive Summary"
     if marker in raw_response:
         cleaned = raw_response[raw_response.find(marker):].strip()
+        # Hard Failsafe: Strip accidental TLDR or Summary prefixes
+        cleaned = re.sub(r'(## Executive Summary\n*)\b(TL;DR|TLDR|Summary)\b\s*[-—:]*', r'\1', cleaned, flags=re.IGNORECASE)
         state["summary"] = cleaned
     else:
         state["summary"] = raw_response
