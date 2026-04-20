@@ -5,7 +5,7 @@ import streamlit as st
 from langgraph.graph import StateGraph, END
 
 from config import client, VISION_MODEL
-from utils import llm, distill_context, retrieve, encode_image, store_figure_description, rerank_papers
+from utils import llm, distill_context, retrieve, encode_image, store_figure_description, rerank_papers, deduplicate_chunks
 from api_search import search_arxiv, search_crossref, search_openalex, search_semantic_scholar, fetch_arxiv_fulltext, fetch_crossref_fulltext
 
 class PaperState(TypedDict):
@@ -29,44 +29,59 @@ class PaperState(TypedDict):
     error: Optional[str]
 
 def node_summarize(state):
-    system_prompt = """You are a Senior Technical Reviewer. Your goal is to provide a MASSIVE, technically exhaustive analysis of the research paper.
+    # Perform 4 targeted semantic searches for full-paper coverage
+    queries = [
+        "abstract problem statement motivation",
+        "methodology approach proposed method",
+        "results experiments evaluation metrics",
+        "conclusion limitations future work"
+    ]
+    all_chunks = []
+    for q in queries:
+        all_chunks.extend(retrieve(q, k=3))
+    
+    context_chunks = deduplicate_chunks(all_chunks)
+    context_text = "\n\n".join(context_chunks)
+
+    system_prompt = """You are a Senior Technical Auditor. Your goal is to provide a MASSIVE, technically exhaustive analysis of the research paper.
+
+### RULES FOR SPECIFICITY (MANDATORY) ###
+- NEVER use generic filler like "The authors propose", "This paper presents", or "In this work".
+- ALWAYS name the EXACT proposed system, algorithm, or mathematical framework from the paper.
+- ALWAYS cite EXACT numerical metrics (e.g., 94.3% accuracy, 2.1dB gain, 15ms latency).
+- Use EXACT variable names and dataset names mentioned in the text.
+- If a number or specific method is not found in the context, do not invent one.
 
 ### MANDATORY MATH FORMATTING ###
 - Use ONLY LaTeX for mathematical symbols and equations.
 - Use '$' for inline math (e.g., $E = mc^2$) and '$$' for block equations.
-- Convert raw symbols like 2πTsϵ into clean LaTeX notation like $2\pi T_s \epsilon$.
-- NEVER use '\[' or '\]' markers.
+- Use raw strings for LaTeX: e.g., $2\\pi T_s \\epsilon$.
+- NEVER use '\\[' or '\\]' markers.
 
 ### REQUIRED STRUCTURE ###
-You must output exactly these sections in order:
-## Executive Summary
-(Detailed technical overview of novelty and core innovation)
+## TLDR
+(One sentence summary: Must include specific problem + exact method name + top result WITH a number)
 
-## Architecture & Methodology
-(Deep dive into systems, backbones, algorithms, and logic units)
+## Problem
+(What specific technical problem does it solve? Use terms from the paper.)
 
-## Performance Analysis
-(Theoretical analysis of channel models, mathematical derivations, and performance bounds)
+## Method
+(Deep dive into the EXACT proposed algorithm/framework. Name it explicitly.)
 
-## Simulation & Results
-(Exhaustive summary of numerical data, benchmarks, and Delta improvements)
+## Results
+(List EXACT metrics: e.g., 94.3% accuracy on [dataset], outperforming [baseline] by 2.1%)
 
-## Conclusion
-(Technical summary of findings and future research directions)
+## Limitations
+(Technical summary of findings and specific known constraints mentioned by authors)"""
 
-### CONSTRAINTS ###
-- START your response directly with '## Executive Summary'.
-- DO NOT echo any of the input paper text.
-- Be technically dense and exhaustive."""
-
-    user_prompt = f"""<PAPER_CONTENT_TO_ANALYZE>
-{state['text'][:7000]}
-</PAPER_CONTENT_TO_ANALYZE>"""
+    user_prompt = f"""<PAPER_CONTEXT_TO_ANALYZE>
+{context_text}
+</PAPER_CONTEXT_TO_ANALYZE>"""
 
     raw_response = llm(user_prompt, system_prompt=system_prompt)
     
     # --- CLEANING SAFETY NET ---
-    marker = "## Executive Summary"
+    marker = "## TLDR"
     if marker in raw_response:
         cleaned = raw_response[raw_response.find(marker):].strip()
         state["summary"] = cleaned
@@ -277,12 +292,13 @@ def node_arxiv_search(state):
 def node_compare_problem(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 1. Problem & Objective
-CONSTRAINTS: What is the paper trying to solve? Compare the primary objective facing the original paper versus the related research.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings (e.g., **[Year] [Title]**).
-MANDATORY: Extract EVERY available detail from the abstracts - research gaps, motivations, target applications, specific challenges addressed.
-MANDATORY: If an abstract lacks specific problem statements, infer from the methodology and results described.
-MANDATORY: DO NOT write "Not Reported" unless the abstract is completely uninformative. Extract what you can.
+ROLE: Technical Auditor | TASK: 1. Problem & Objective Comparison
+CONSTRAINTS: 
+- Compare the primary technical objective of the original paper versus each related paper.
+- MANDATORY: Use EXACT terminology from the abstracts.
+- BANNED: "The authors address...", "This paper explores...".
+- Each paper must have its own bold subheading.
+- Focus on the specific research gap (e.g., "high latency in 5G handovers") rather than general themes.
 
 ### CONTEXT ###
 Original Paper Summary:
@@ -299,12 +315,12 @@ Related Research Papers:
 def node_compare_method(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 2. Methodology & Approach
-CONSTRAINTS: How is the problem solved? Compare the approaches used (e.g., Algorithms, Models, Frameworks, Experiments, Theoretical analysis).
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
-MANDATORY: Extract EVERY methodological detail from abstracts - algorithms, architectures, frameworks, mathematical models, experimental designs.
-MANDATORY: Look for keywords like "propose", "develop", "design", "implement", "analyze", "model", "framework", "algorithm", "method".
-MANDATORY: If methodology is implicit, infer from problem and results sections.
+ROLE: Technical Auditor | TASK: 2. Methodology & Approach Comparison
+CONSTRAINTS: 
+- Compare the exact algorithms, architectures, or mathematical models.
+- MANDATORY: List specific variable names or algorithm names (e.g., "DeepSet-V2", "Adam Optimizer with 0.01 learning rate").
+- BANNED: "They use a unique approach", "A machine learning model is utilized".
+- Each paper must have its own bold subheading.
 
 ### CONTEXT ###
 Original Paper Summary:
@@ -321,12 +337,11 @@ Related Research Papers:
 def node_compare_data(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 3. Data & Evidence
-CONSTRAINTS: What data/evidence is used? Compare datasets, simulations, case studies, experimental setups, or theoretical proofs.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
-MANDATORY: Extract EVERY data-related detail - dataset names, simulation parameters, experimental conditions, sample sizes, test scenarios.
-MANDATORY: Look for keywords like "dataset", "data", "simulation", "experiment", "test", "benchmark", "case study", "evaluation", "validate".
-MANDATORY: If specific datasets aren't named, describe the type of data used (e.g., "satellite telemetry data", "clinical trials", "synthetic data").
+ROLE: Technical Auditor | TASK: 3. Data & Evidence Comparison
+CONSTRAINTS: 
+- Identify the exact datasets (e.g., "MNIST", "COCO", "Custom dataset of 5,000 ECG signals").
+- MANDATORY: Mention sample sizes or simulation parameters.
+- BANNED: "Publicly available data was used", "Simulation results are provided".
 
 ### CONTEXT ###
 Original Paper Summary:
@@ -343,12 +358,12 @@ Related Research Papers:
 def node_compare_results(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 4. Results & Findings
-CONSTRAINTS: What did they achieve? Compare findings, performance metrics, improvements, observations, or discoveries.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
-MANDATORY: Extract EVERY quantitative and qualitative result - accuracy rates, error reductions, performance gains, efficiency improvements, novel findings.
-MANDATORY: Look for keywords like "achieve", "improve", "reduce", "increase", "demonstrate", "show", "find", "result", "performance", "accuracy", "error", "%", "dB", "rate".
-MANDATORY: Include specific numbers, percentages, or comparative statements (e.g., "outperforms", "better than", "reduces by").
+ROLE: Technical Auditor | TASK: 4. Quantitative Results Comparison
+CONSTRAINTS: 
+- MANDATORY: Provide a Comparative Results Matrix (Table) at the end.
+- MANDATORY: List EXACT numerical results (e.g., "accuracy: 98.2%", "RMSE: 0.12").
+- BANNED: "Significant improvement was observed", "Better performance than baselines".
+- Focus on extracting REAL numbers from each snippet.
 
 ### CONTEXT ###
 Original Paper Summary:
@@ -365,12 +380,11 @@ Related Research Papers:
 def node_compare_eval(state):
     combined = "\n\n".join([f"[{p['year']}] {p['title']}: {p['summary']}" for p in state["papers"]])
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
-ROLE: Technical Reviewer | TASK: 5. Evaluation Method
-CONSTRAINTS: How did they validate results? Compare validation strategies, metrics, experimental protocols, or theoretical proofs.
-MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
-MANDATORY: Extract EVERY evaluation detail - metrics used (RMSE, accuracy, F1, BER, SNR, etc.), comparison baselines, validation methods, statistical tests.
-MANDATORY: Look for keywords like "evaluate", "validate", "compare", "metric", "measure", "assess", "test", "benchmark", "baseline", "versus", "against".
-MANDATORY: If explicit evaluation isn't described, infer from results section (e.g., "compared against X" implies comparative evaluation).
+ROLE: Technical Auditor | TASK: 5. Evaluation Method Comparison
+CONSTRAINTS: 
+- Compare the exact validation metrics (e.g., "F1-Score", "mAP", "BER").
+- MANDATORY: Mention exactly what they were compared AGAINST (Baselines).
+- BANNED: "Validated using standard metrics".
 
 ### CONTEXT ###
 Original Paper Summary:
@@ -385,24 +399,46 @@ Related Research Papers:
     return state
 
 def node_improve(state):
-    # DISTILL context to avoid TPM limits and focus the LLM
-    important_context = distill_context(state['comparison'])
+    # Perform 4 targeted searches for identify technical weaknesses
+    queries = [
+        "abstract introduction background",
+        "methodology approach proposed solution",
+        "results experiments analysis discussion",
+        "conclusion limitations future scope"
+    ]
+    all_chunks = []
+    for q in queries:
+        all_chunks.extend(retrieve(q, k=3))
+    
+    context_chunks = deduplicate_chunks(all_chunks)
+    context_text = "\n\n".join(context_chunks)
+
+    # DISTILL comparison context to save tokens (capped at 1500 chars)
+    comp_context = distill_context(state['comparison'])[:1500]
     
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Senior Technical Editor
 TASK: Identify exactly 3-5 SPECIFIC weak sections in the paper that need technical improvement.
 
-CONSTRAINTS:
-- AVOID GENERIC FEEDBACK (e.g., "improve clarity", "add more detail").
-- FOCUS ON TECHNICAL GAPS: Lack of specific architectural justifications, missing benchmark comparisons, weak methodological grounding (Optimization, Loss functions, or core Research Objectives), or incremental novelty vs total innovation.
-- REFERENCE the Comparative Analysis directly (Architectural, Methodology/Optimization, Benchmarks, Innovation).
-- Start your response DIRECTLY with '## Improvement Strategy'.
+### RULES FOR SPECIFICITY (MANDATORY) ###
+- For each weakness, you MUST quote the EXACT weak sentence from the paper using quotation marks.
+- Explain precisely WHY that sentence is weak (e.g., "missing justification for parameter X", "generic claims without benchmark").
+- Suggest a CONCRETE technical fix (e.g., "add ablation study comparing method X against baseline Y").
+- DO NOT use generic feedback like "improve clarity" or "add more details".
+- DO NOT fabricate weaknesses in sections that are technically strong.
 
-### DISTILLED COMPARATIVE CONTEXT ###
-{important_context}
+### STRUCTURE ###
+Each section heading (e.g. ## Methodology) must contain:
+1. "Quoted weak text"
+2. Reason it is weak.
+3. Concrete, actionable fix.
 
-### RELEVANT PAPER SNIPPETS ###
-{state['text'][:5000]}
+### CONTEXT ###
+[COMPARATIVE ANALYSIS GAPS]
+{comp_context}
+
+[PAPER SNIPPETS]
+{context_text}
 
 ## Improvement Strategy
 """
@@ -410,24 +446,50 @@ CONSTRAINTS:
     return state
 
 def node_rewrite(state):
-    if "Error" in state["improvements"]:
+    if "Error" in state["improvements"] or not state["improvements"]:
         state["edits"] = []
         return state
 
+    # Perform targeted searches to get verbatim text for the identified sections
+    queries = [
+        "abstract introduction",
+        "methodology proposed method",
+        "results experiments metrics",
+        "conclusion limitations"
+    ]
+    all_chunks = []
+    for q in queries:
+        all_chunks.extend(retrieve(q, k=3))
+    
+    context_chunks = deduplicate_chunks(all_chunks)
+    context_text = "\n\n".join(context_chunks)
+
     prompt = f"""<<< SYSTEM INSTRUCTIONS >>>
 ROLE: Technical Author
-TASK: Rewrite the weak sections identified to address technical gaps (architectural detail, benchmark context).
-CONSTRAINTS:
-- Return a VALID JSON array ONLY.
-- Format: [{{"section": "Precise Section Name", "original": "Original text snippet", "rewritten": "Improved technical text"}}]
-- Ensure section names are unique and match the paper's structure.
-- Maximum 5 rewrites.
+TASK: Rewrite the weak sections identified by the editor to sound exactly like the original authors wrote them.
+
+### RULES FOR AUTHENTICITY (MANDATORY) ###
+- Use the EXACT technical terminology, variable names, and method names from the paper.
+- Use REAL numbers and metrics found in the paper (DO NOT invent statistics).
+- Ensure the tone matches the original professional scientific style.
+- The rewritten text must be directly usable in the paper.
+- BANNED: Placeholders like "[add result here]" or "[insert figure]".
+
+### OUTPUT FORMAT (MANDATORY) ###
+Return a VALID JSON array ONLY.
+[
+  {{
+    "section": "Precise Section Name",
+    "original": "EXACT 100-150 character snippet of the original text to locate it",
+    "rewritten": "The complete improved technical text for the section"
+  }}
+]
 
 ### ANALYSIS OF WEAKNESSES ###
 {state['improvements']}
 
-### FULL PAPER CONTEXT (TRUNCATED) ###
-{state['text'][:6000]}
+### FULL PAPER VERBATIM CONTEXT ###
+{context_text}
 
 ### OUTPUT ###
 """
