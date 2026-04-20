@@ -10,7 +10,7 @@ upload_graph, compare_graph, improve_graph, qa_graph = build_graphs()
 # =========================
 # STREAMLIT UI
 # =========================
-st.set_page_config(page_title="ScholarAI", page_icon="🔬", layout="wide")
+st.set_page_config(page_title="ScholarAI", layout="wide")
 
 # Custom CSS for dark theme
 st.markdown("""
@@ -31,7 +31,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🔬 ScholarAI: Research Paper Helper")
+st.title("Research Paper Helper")
 st.caption("Upload a PDF → Get AI Summary, Q&A, Multi-Engine Comparison, and Improvements")
 
 # Initialize session state
@@ -47,10 +47,10 @@ if "vision_dict" not in st.session_state:
 
 # --- SIDEBAR: Upload ---
 with st.sidebar:
-    st.header("📄 Upload Paper")
+    st.header("Upload Paper")
     uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
 
-    if uploaded_file and st.button("🚀 Analyze Paper", type="primary", use_container_width=True):
+    if uploaded_file and st.button("Analyze Paper", type="primary", use_container_width=True):
         with st.spinner("Parsing PDF & running AI analysis..."):
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             tmp.write(uploaded_file.read())
@@ -76,14 +76,14 @@ with st.sidebar:
             st.session_state.pdf_path = tmp.name
             st.session_state.vision_dict = {}  # Clear previous paper's figure analysis
 
-        st.success("✅ Analysis complete!")
+        st.success("Analysis complete!")
 
     if st.session_state.topic:
         topic_str = st.session_state.topic if isinstance(st.session_state.topic, str) else ", ".join(st.session_state.topic)
         st.info(f"**Topic:** {topic_str}")
 
 # --- MAIN TABS ---
-tab1, tab5, tab2, tab3, tab4 = st.tabs(["📋 Summary", "🖼️ Figures", "💬 Q&A", "🔍 Compare", "✏️ Improve"])
+tab1, tab5, tab2, tab3, tab4 = st.tabs(["Summary", "Figures", "Q&A", "Compare", "Improve"])
 
 # --- TAB 1: Summary ---
 with tab1:
@@ -125,7 +125,7 @@ with tab3:
     if not st.session_state.summary:
         st.info("Upload a paper first.")
     else:
-        if st.button("🔍 Run Comparative Study", type="primary"):
+        if st.button("Run Comparative Study", type="primary"):
             with st.spinner("Searching multi-engine academic sources... (30-60s)"):
                 init = {
                     "text": "", "images": [], "chunks": [],
@@ -181,7 +181,7 @@ with tab4:
     if not st.session_state.comp_problem:
         st.info("Run the Comparative Study first (Compare tab).")
     else:
-        if st.button("✏️ Analyze & Rewrite Sections", type="primary"):
+        if st.button("Analyze & Rewrite Sections", type="primary"):
             with st.spinner("Identifying weak sections & generating rewrites..."):
                 # Combine modular results for the improvement engine
                 combined_comparison = f"""
@@ -212,7 +212,7 @@ with tab4:
 
         if st.session_state.edits:
             st.divider()
-            st.subheader(f"✏️ {len(st.session_state.edits)} Sections Rewritten")
+            st.subheader(f"{len(st.session_state.edits)} Sections Rewritten")
             for ed in st.session_state.edits:
                 title = ed.get('section', 'Unknown Section')
                 with st.expander(f"Section: {title}"):
@@ -234,7 +234,7 @@ with tab5:
     else:
         # Analyze All Button
         if len(st.session_state.vision_dict) < len(st.session_state.images):
-            if st.button("🚀 Analyze All Figures", type="primary"):
+            if st.button("Analyze All Figures", type="primary"):
                 for i, fig_data in enumerate(st.session_state.images):
                     if i not in st.session_state.vision_dict:
                         fig_dict = fig_data if isinstance(fig_data, dict) else {"path": fig_data, "caption": "", "page_num": "?", "context": "", "figure_index": i+1}
@@ -253,9 +253,6 @@ with tab5:
             if fig_dict.get("caption"):
                 st.caption(f"**Extracted Caption:** {fig_dict['caption']}")
             
-            if fig_dict.get("context"):
-                with st.expander("📄 View Surrounding Paper Text (200 words)"):
-                    st.write(fig_dict["context"])
             
             st.image(fig_dict["path"], width=600)
             
