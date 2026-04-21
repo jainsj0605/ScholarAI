@@ -437,6 +437,12 @@ TASK: Identify EXACTLY 5 DIFFERENT and SPECIFIC weak sections in the paper that 
 - BANNED: Do not use generic feedback like "improve clarity" or "add more details".
 - DO NOT combine improvements. List them as 1, 2, 3, 4, 5.
 
+### RESEARCH CONTEXT (YOUR PAPER) ###
+{context_text}
+
+### COMPARATIVE ANALYSIS (STATE OF THE ART) ###
+{comp_context}
+
 ### STRUCTURE ###
 1. ## [Weakness 1 Name]
    - "Quoted weak text"
