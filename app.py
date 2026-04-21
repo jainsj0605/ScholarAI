@@ -63,7 +63,7 @@ if "vision_dict" not in st.session_state:
 
 # --- SIDEBAR: Upload ---
 with st.sidebar:
-    st.header("📂 Data Ingestion")
+
     uploaded_file = st.file_uploader("Upload Research Paper (PDF)", type="pdf")
     
     if st.button("🔄 Reset Session", use_container_width=True):
