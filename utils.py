@@ -21,7 +21,11 @@ def clean_math_output(text: str) -> str:
     if not text or not isinstance(text, str):
         return text
 
-    # 1. FIX DELIMITERS: Convert non-standard markers to Streamlit-compatible ones
+    # 1. JSON SAFETY: Do not clean if the text looks like a JSON array of sections
+    if '"section":' in text and '"rewritten":' in text:
+        return text
+
+    # 2. FIX DELIMITERS: Convert non-standard markers to Streamlit-compatible ones
     # Block Math: [ ... ] or \[ ... \] -> $$ ... $$
     text = re.sub(r'\\?\[\s*(.*?)\s*\\?\]', r'$$\1$$', text, flags=re.DOTALL)
     # Inline Math: \( ... \) -> $ ... $
@@ -66,7 +70,7 @@ def clean_math_output(text: str) -> str:
 
     return text.strip()
 
-def llm(prompt: str, system_prompt: str = None, model: str = None, max_chars: int = 100000, disable_failsafe: bool = False) -> str:
+def llm(prompt: str, system_prompt: str = None, model: str = None, max_chars: int = 100000, disable_failsafe: bool = False, skip_cleanup: bool = False) -> str:
     # Truncate prompt to prevent 413 or TPM errors
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[Context truncated due to size limits...]"
@@ -102,7 +106,9 @@ def llm(prompt: str, system_prompt: str = None, model: str = None, max_chars: in
                     content = content[:last_period + 1] + "\n\n[Section complete]"
             
             # AUTOMATIC CLEANING: Fix LaTeX formulas for ALL responses
-            return clean_math_output(content)
+            if not skip_cleanup:
+                return clean_math_output(content)
+            return content
             
         except Exception as e:
             err_msg = str(e).lower()

@@ -511,7 +511,12 @@ Return a VALID JSON array ONLY. Do not add any preamble or conversational text.
 
 ### OUTPUT ###
 """
-    raw = llm(prompt, disable_failsafe=True)
+    raw = llm(prompt, disable_failsafe=True, skip_cleanup=True)
+    
+    # DE-HALLUCINATION: Filter out repetitive bracket sequences (common model failure)
+    # If a string contains more than 50 consecutive [ or ], truncate it.
+    raw = re.sub(r'\[{50,}', ' [ ... (repetitive hallucination) ] ', raw)
+    raw = re.sub(r'\]{50,}', ' [ ... (repetitive hallucination) ] ', raw)
     try:
         # Step 1: Aggressive Cleanup - isolate the array
         # This handles cases where the LLM adds text before/after the JSON
@@ -596,7 +601,7 @@ Return a VALID JSON array ONLY. Do not add any preamble or conversational text.
             state["edits"] = [{
                 "section": "Rewrite Outcome",
                 "original": "The AI provided complex text that required manual splitting.",
-                "rewritten": raw
+                "rewritten": clean_math_output(raw)
             }]
     return state
 
