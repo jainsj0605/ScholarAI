@@ -54,10 +54,10 @@ def node_summarize(state):
 - Use EXACT variable names and dataset names mentioned in the text.
 
 ### MANDATORY MATH FORMATTING ###
-- Use ONLY LaTeX for mathematical symbols and equations.
-- Use '$' for inline math (e.g., $E = mc^2$) and '$$' for block equations.
-- NEVER use markers like '\[', '\]', '\(', '\)', or '\begin{equation}'.
-- If you need to write a formula, just use '$$' for display math.
+- You MUST use EXACTLY `$$` (double dollar signs) for block equations.
+- Block equations MUST be placed on their own separate lines (e.g., `\n$$\n E = mc^2 \n$$\n`).
+- Use `$` (single dollar sign) for inline math (e.g., $x=5$).
+- Do NOT use brackets `[` or `]` to construct block equations. ALWAYS use `$$`.
 
 ### REQUIRED STRUCTURE ###
 ## Executive Summary

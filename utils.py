@@ -26,10 +26,8 @@ def clean_math_output(text: str) -> str:
         return text
 
     # 2. FIX DELIMITERS: Convert non-standard markers to Streamlit-compatible ones
-    # Block Math: [ ... ] or \[ ... \] -> $$ ... $$
-    text = re.sub(r'\\?\[\s*(.*?)\s*\\?\]', r'$$\1$$', text, flags=re.DOTALL)
-    # Inline Math: \( ... \) -> $ ... $
-    text = re.sub(r'\\\( \s*(.*?)\s*\\\)', r'$\1$', text, flags=re.DOTALL)
+    # Remove the dangerous `\[` regex that broke inner brackets. We will handle blocks via prompt.
+    text = re.sub(r'\\\((.*?)\\\)', r'$\1$', text, flags=re.DOTALL)
     # Equation Blocks: \begin{equation} ... \end{equation} -> $$ ... $$
     text = re.sub(r'\\begin\{equation\}(.*?)\\end\{equation\}', r'$$\1$$', text, flags=re.DOTALL | re.IGNORECASE)
 
