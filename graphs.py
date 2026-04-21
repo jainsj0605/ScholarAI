@@ -56,8 +56,8 @@ def node_summarize(state):
 ### MANDATORY MATH FORMATTING ###
 - Use ONLY LaTeX for mathematical symbols and equations.
 - Use '$' for inline math (e.g., $E = mc^2$) and '$$' for block equations.
-- Use raw strings for LaTeX: e.g., $2\\pi T_s \\epsilon$.
-- NEVER use '\\[' or '\\]' markers.
+- NEVER use markers like '\[', '\]', '\(', '\)', or '\begin{equation}'.
+- If you need to write a formula, just use '$$' for display math.
 
 ### REQUIRED STRUCTURE ###
 ## Executive Summary
@@ -161,6 +161,10 @@ Be precise. Do not hallucinate data not visible in the figure."""
             temperature=0.2
         )
         description = res.choices[0].message.content
+
+        # AUTOMATIC CLEANING: Fix LaTeX formulas in Vision descriptions
+        from utils import clean_math_output
+        description = clean_math_output(description)
 
         # Step 4: Store in FAISS so Q&A can retrieve figure content
         store_figure_description(figure_index, description)
@@ -555,6 +559,11 @@ Return a VALID JSON array ONLY. Do not add any preamble or conversational text.
             sec = ed.get("section", "Technical Improvement").strip()
             orig = ed.get("original", "See paper...").strip()
             rewr = ed.get("rewritten", "").strip()
+            
+            # AUTOMATIC CLEANING: Fix LaTeX formulas inside JSON fields
+            from utils import clean_math_output
+            orig = clean_math_output(orig)
+            rewr = clean_math_output(rewr)
             
             if rewr and sec not in seen_sections:
                 unique_edits.append({
