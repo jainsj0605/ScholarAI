@@ -307,6 +307,7 @@ def node_compare_problem(state):
 ROLE: Technical Reviewer | TASK: 1. Problem & Objective
 CONSTRAINTS: What is the paper trying to solve? Compare the primary objective facing the original paper versus the related research.
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings (e.g., **[Year] [Title]**).
+MANDATORY: You MUST review and write a distinct subheading for ALL related papers provided below. DO NOT skip or omit any paper.
 MANDATORY: Extract EVERY available detail from the abstracts - research gaps, motivations, target applications, specific challenges addressed.
 MANDATORY: If an abstract lacks specific problem statements, infer from the methodology and results described.
 MANDATORY: DO NOT write "Not Reported" unless the abstract is completely uninformative. Extract what you can.
@@ -329,6 +330,7 @@ def node_compare_method(state):
 ROLE: Technical Reviewer | TASK: 2. Methodology & Approach
 CONSTRAINTS: How is the problem solved? Compare the approaches used (e.g., Algorithms, Models, Frameworks, Experiments, Theoretical analysis).
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: You MUST review and write a distinct subheading for ALL related papers provided below. DO NOT skip or omit any paper.
 MANDATORY: Extract EVERY methodological detail from abstracts - algorithms, architectures, frameworks, mathematical models, experimental designs.
 MANDATORY: Look for keywords like "propose", "develop", "design", "implement", "analyze", "model", "framework", "algorithm", "method".
 MANDATORY: If methodology is implicit, infer from problem and results sections.
@@ -351,6 +353,7 @@ def node_compare_data(state):
 ROLE: Technical Reviewer | TASK: 3. Data & Evidence
 CONSTRAINTS: What data/evidence is used? Compare datasets, simulations, case studies, experimental setups, or theoretical proofs.
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: You MUST review and write a distinct subheading for ALL related papers provided below. DO NOT skip or omit any paper.
 MANDATORY: Extract EVERY data-related detail - dataset names, simulation parameters, experimental conditions, sample sizes, test scenarios.
 MANDATORY: Look for keywords like "dataset", "data", "simulation", "experiment", "test", "benchmark", "case study", "evaluation", "validate".
 MANDATORY: If specific datasets aren't named, describe the type of data used (e.g., "satellite telemetry data", "clinical trials", "synthetic data").
@@ -373,6 +376,7 @@ def node_compare_results(state):
 ROLE: Technical Reviewer | TASK: 4. Results & Findings
 CONSTRAINTS: What did they achieve? Compare findings, performance metrics, improvements, observations, or discoveries.
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: You MUST review and write a distinct subheading for ALL related papers provided below. DO NOT skip or omit any paper.
 MANDATORY: Extract EVERY quantitative and qualitative result - accuracy rates, error reductions, performance gains, efficiency improvements, novel findings.
 MANDATORY: Look for keywords like "achieve", "improve", "reduce", "increase", "demonstrate", "show", "find", "result", "performance", "accuracy", "error", "%", "dB", "rate".
 MANDATORY: Include specific numbers, percentages, or comparative statements (e.g., "outperforms", "better than", "reduces by").
@@ -395,6 +399,7 @@ def node_compare_eval(state):
 ROLE: Technical Reviewer | TASK: 5. Evaluation Method
 CONSTRAINTS: How did they validate results? Compare validation strategies, metrics, experimental protocols, or theoretical proofs.
 MANDATORY: Structure your response strictly paper-by-paper. Use bold subheadings.
+MANDATORY: You MUST review and write a distinct subheading for ALL related papers provided below. DO NOT skip or omit any paper.
 MANDATORY: Extract EVERY evaluation detail - metrics used (RMSE, accuracy, F1, BER, SNR, etc.), comparison baselines, validation methods, statistical tests.
 MANDATORY: Look for keywords like "evaluate", "validate", "compare", "metric", "measure", "assess", "test", "benchmark", "baseline", "versus", "against".
 MANDATORY: If explicit evaluation isn't described, infer from results section (e.g., "compared against X" implies comparative evaluation).
