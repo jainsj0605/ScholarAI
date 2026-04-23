@@ -1,6 +1,7 @@
 # 🔬 ScholarAI: Research Paper Helper
+**Live Deployment:** [https://scholaraii.streamlit.app/](https://scholaraii.streamlit.app/)
 
-ScholarAI is an AI-powered assistant designed to streamline the research process. It transforms complex research papers into actionable insights through automated summarization, vision-based figure analysis, and comparative studies against recent arXiv research.
+ScholarAI is an advanced, AI-driven research pipeline that significantly outperforms standard literature review tools by orchestrating a deterministic multi-engine search across 4 major academic databases (ArXiv, Semantic Scholar, OpenAlex, and CrossRef). It guarantees high-fidelity outputs through a strict 2-level filtering gatekeeper that enforces a 100-character minimum abstract length and immediately discards generic metadata placeholders. Unlike traditional systems that rely solely on brief abstracts, ScholarAI dynamically resolves DOIs and downloads open-access PDFs to extract up to 8,000 characters of full-text methodology and results data per paper. By algorithmically reconstructing complex API data formats and applying vector-based semantic re-ranking to isolate the top 6 most relevant papers, ScholarAI eliminates the common issue of "Not Reported" data gaps—ultimately generating a comprehensive, 5-dimensional comparative analysis backed by empirical evidence, exact dataset scales, and robust technical methodologies.
 
 ## 🚀 Features
 
