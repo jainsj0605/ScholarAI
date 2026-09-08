@@ -1,8 +1,8 @@
 # ScholarAI 🎓
 
-ScholarAI is a multimodal Retrieval-Augmented Generation (RAG) assistant that analyzes, critiques, compares, and enhances research papers. 
+ScholarAI is a multimodal Retrieval-Augmented Generation (RAG) assistant that analyzes, critiques, compares, and suggests publication-grade enhancements for research papers. 
 
-Powered by **Groq** (`openai/gpt-oss-120b` with automatic fallback to `llama-3.3-70b-versatile`, plus `meta-llama/llama-4-scout-17b-16e-instruct` for vision), **Sentence-Transformers**, **FAISS**, **PyMuPDF**, and **LangGraph**, ScholarAI extracts deep insights from academic PDFs, retrieves related literature across four research repositories, critiques weak sections, and applies rewritten sections directly to the PDF.
+Powered by **Groq** (`openai/gpt-oss-120b` with automatic fallback to `llama-3.3-70b-versatile`, plus `meta-llama/llama-4-scout-17b-16e-instruct` for vision), **Sentence-Transformers**, **FAISS**, **PyMuPDF**, and **LangGraph**, ScholarAI extracts deep insights from academic PDFs, retrieves related literature across four research repositories, critiques weak sections, and provides actionable, publication-ready suggested rewrites.
 
 ---
 
@@ -28,12 +28,11 @@ Powered by **Groq** (`openai/gpt-oss-120b` with automatic fallback to `llama-3.3
 - 📊 **Automated Comparative Study**  
   Compares the uploaded paper against top-ranked literature, synthesizing key differences, recent improvements in competing papers, missing concepts, and original strengths.
 
-- ✏️ **Publication Critique & In-Place Section Rewriting**  
-  Identifies weak or vague statements, quotes original snippets, provides actionable suggestions, and produces publication-ready rewrites.
+- ✏️ **Publication Critique & Suggested Section Rewrites**  
+  Identifies weak or vague statements, quotes original snippets from the paper, provides concrete critique, and presents publication-grade suggested rewrites side-by-side for review.
 
-- 📥 **Dual PDF Export Options**  
-  - **In-Place Edited Paper**: PyMuPDF redaction locates original text snippets, whites them out, and inserts rewritten text directly into the document layout.
-  - **Complete Analysis Report**: Merges the edited paper with a 4-section appendix report (Summary & Figures, Q&A transcript, Comparative Study, and Rewritten Sections).
+- 📥 **Comprehensive Analysis Report Export**  
+  Compiles a downloadable multi-page analytical report (PDF) including the paper summary, figure insights, interactive Q&A history, comparative study, and the complete critique with recommended rewrites for the author's reference.
 
 - 🛡️ **429 Rate-Limit Fallback Chain**  
   Automatically falls back from `openai/gpt-oss-120b` to `llama-3.3-70b-versatile` if rate limits are reached, ensuring uninterrupted analysis.
@@ -57,7 +56,7 @@ ScholarAI/
 │   ├── rag.py             # PDF text/image parser, FAISS vector index & retrieval
 │   ├── search.py          # Multi-engine search (ArXiv, S2, OpenAlex, Crossref) & reranking
 │   ├── workflows.py       # LangGraph state machine pipelines (upload, compare, improve, qa)
-│   ├── pdf_builder.py     # PDF text redaction, rewriting, and report synthesis
+│   ├── pdf_builder.py     # PDF report synthesis, layout formatting, and appendix compilation
 │   └── templates/         # Modern dark-themed Jinja2 templates
 │       ├── base.html      # Base navigation & state persistence
 │       ├── upload.html    # Drag-and-drop PDF dropzone & tabbed summary

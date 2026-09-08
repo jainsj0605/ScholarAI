@@ -29,7 +29,7 @@ class TestAppRoutes(unittest.TestCase):
     def test_download_page(self):
         res = self.client.get("/download")
         self.assertEqual(res.status_code, 200)
-        self.assertIn(b"Export &amp; Download Center", res.data)
+        self.assertIn(b"Export Analysis Report", res.data)
 
     def test_ask_empty_query(self):
         res = self.client.post("/ask", json={"query": ""})
