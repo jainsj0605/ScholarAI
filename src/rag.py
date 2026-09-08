@@ -1,11 +1,13 @@
 import os
 from typing import List, Tuple
-import fitz
+try:
+    import pymupdf as fitz
+except ImportError:
+    import fitz
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
-from src.config import EMBEDDING_MODEL_NAME, EMBEDDING_DIM, DEFAULT_CHUNK_SIZE, DEFAULT_TOP_K
+from src.config import EMBEDDING_DIM, DEFAULT_CHUNK_SIZE, DEFAULT_TOP_K
 
 class VectorStore:
     """Manages document chunk embeddings and FAISS vector indexing with ultra-low RAM footprint."""

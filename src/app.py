@@ -1,5 +1,8 @@
 import os
-import fitz
+try:
+    import pymupdf as fitz
+except ImportError:
+    import fitz
 from flask import Flask, request, jsonify, send_file, render_template
 
 from src.config import UPLOAD_PDF_PATH

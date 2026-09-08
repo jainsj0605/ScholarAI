@@ -1,6 +1,9 @@
 import io
 import re
-import fitz
+try:
+    import pymupdf as fitz
+except ImportError:
+    import fitz
 from typing import List, Dict, Any, Tuple
 from src.config import PAGE_W, PAGE_H, MARGIN, TW
 
