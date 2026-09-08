@@ -94,12 +94,18 @@ def search_arxiv(query: str, sort_by: str = "submittedDate") -> list:
         return []
 
 def search_semantic_scholar(query: str) -> list:
-    """Query Semantic Scholar Graph API."""
+    """Query Semantic Scholar Graph API (supports optional SEMANTIC_SCHOLAR_API_KEY)."""
+    import os
     cleaned = clean_query(query)
     q_encoded = quote_plus(cleaned)
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={q_encoded}&limit=15&fields=title,abstract,year,url,venue"
     try:
-        res = requests.get(url, timeout=15)
+        headers = {"User-Agent": "ScholarAI/1.0 (mailto:admin@scholarai.app)"}
+        s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+        if s2_key:
+            headers["x-api-key"] = s2_key
+
+        res = requests.get(url, headers=headers, timeout=15)
         if res.status_code == 200:
             data = res.json()
             papers = []
@@ -127,7 +133,8 @@ def search_openalex(query: str) -> list:
     q_encoded = "+".join(words)
     url = f"https://api.openalex.org/works?search={q_encoded}&filter=has_abstract:true&per_page=15&mailto=admin@scholarai.app"
     try:
-        res = requests.get(url, timeout=18)
+        headers = {"User-Agent": "ScholarAI/1.0 (mailto:admin@scholarai.app)"}
+        res = requests.get(url, headers=headers, timeout=18)
         if res.status_code == 200:
             data = res.json()
             papers = []
@@ -147,13 +154,17 @@ def search_openalex(query: str) -> list:
                     sorted_words = [word_positions[i] for i in sorted(word_positions.keys())]
                     abstract = " ".join(sorted_words)
 
+                primary_loc = item.get("primary_location") or {}
+                source = primary_loc.get("source") or {}
+                venue_name = source.get("display_name") or "OpenAlex"
+
                 papers.append({
                     "title": title,
                     "summary": abstract,
                     "has_abstract": len(abstract) > 20,
                     "year": str(item.get("publication_year", "")),
                     "link": link,
-                    "venue": normalize_venue((item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex"))
+                    "venue": normalize_venue(venue_name)
                 })
             return papers
     except Exception:
