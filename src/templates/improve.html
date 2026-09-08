@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Improve — ScholarAI{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <div>
+    <h2 style="font-size:1.4rem;color:#4caf82;margin-bottom:4px">✏️ Publication Critique &amp; In-Place Rewriter</h2>
+    <p style="color:#8892b0;font-size:.88rem">Critiques weak arguments and vague claims using comparative literature insights, and generates publication-grade rewrites.</p>
+  </div>
+  <div id="paperTag"></div>
+</div>
+
+<div id="noPaper" class="card hidden">
+  <p style="color:#94a3b8;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload a paper first &rarr;</a></p>
+</div>
+
+<div id="mainContent">
+  <div class="card">
+    <div class="card-title">🔬 Critique &amp; Rewrite Engine</div>
+    <p style="font-size:.84rem;color:#94a3b8;margin-bottom:16px">
+      Reads the full paper text via semantic RAG, compares it with recent related research, isolates concrete weaknesses, and generates publication-level rewritten text.
+      <span style="color:#f0a04b;display:block;margin-top:4px">Tip: Run the Comparative Study first for more contextual critique.</span>
+    </p>
+    <div class="row">
+      <button class="btn btn-success" id="improveBtn" onclick="runImprovement()">Analyze &amp; Rewrite Weak Sections</button>
+      <span id="improveStatus"></span>
+    </div>
+  </div>
+
+  <!-- Improvement analysis -->
+  <div class="card hidden" id="analysisCard">
+    <div class="card-title" style="justify-content:space-between">
+      <span>📋 Weakness Critique &amp; Recommendations</span>
+      <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'analysisCardInner')">⊞</button>
+    </div>
+    <div id="analysisCardInner">
+      <div id="improvementOutput" class="md-out" style="max-height:380px"></div>
+    </div>
+  </div>
+
+  <!-- Edits preview -->
+  <div class="card hidden" id="editsCard">
+    <div class="card-title" style="justify-content:space-between">
+      <span>✏️ Proposed Section Rewrites <span id="editCount" class="badge badge-ok" style="margin-left:8px"></span></span>
+      <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'editsCardInner')">⊞</button>
+    </div>
+    <div id="editsCardInner">
+      <div id="editsPreview" style="display:flex;flex-direction:column;gap:14px"></div>
+    </div>
+  </div>
+
+  <!-- Next -->
+  <div class="hidden" id="nextBtn" style="display:flex;justify-content:flex-end;gap:10px;margin-top:4px">
+    <a href="/download"><button class="btn btn-success">Continue to Download &rarr;</button></a>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const topic = SS.str("topic");
+  if(!topic){
+    document.getElementById("noPaper").classList.remove("hidden");
+    document.getElementById("mainContent").classList.add("hidden");
+  } else {
+    document.getElementById("paperTag").innerHTML = `<span class="badge badge-info">${topic}</span>`;
+  }
+
+  // Restore saved improvements
+  const savedImprovements = SS.str("improvements");
+  const savedEdits        = SS.get("edits");
+  if(savedImprovements){
+    showAnalysis(savedImprovements, savedEdits || []);
+  }
+
+  async function runImprovement(){
+    const summary    = SS.str("summary");
+    const comparison = SS.str("comparison") || "No prior comparative analysis available.";
+
+    setBtn("improveBtn", true, "Critiquing & rewriting weak sections...");
+    document.getElementById("improveStatus").innerHTML = "";
+    document.getElementById("analysisCard").classList.add("hidden");
+    document.getElementById("editsCard").classList.add("hidden");
+    document.getElementById("nextBtn").classList.add("hidden");
+
+    try {
+      const res = await fetch("/improve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary, comparison })
+      });
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+
+      SS.set("improvements", data.improvements);
+      SS.set("edits", data.edits || []);
+      showAnalysis(data.improvements, data.edits || []);
+      document.getElementById("improveStatus").innerHTML = `<span class="badge badge-ok">✓ Analysis complete</span>`;
+    } catch(e) {
+      document.getElementById("improveStatus").innerHTML = `<span class="badge badge-err">✗ ${e.message}</span>`;
+    }
+    setBtn("improveBtn", false, "Analyze & Rewrite Weak Sections");
+  }
+
+  function showAnalysis(improvements, edits){
+    document.getElementById("improvementOutput").innerHTML = md(improvements);
+    document.getElementById("analysisCard").classList.remove("hidden");
+
+    if(edits && edits.length > 0){
+      document.getElementById("editCount").textContent = `${edits.length} section${edits.length > 1 ? 's' : ''}`;
+      const preview = document.getElementById("editsPreview");
+      preview.innerHTML = edits.map(e => `
+        <div style="border:1px solid #2a3347;border-radius:10px;overflow:hidden">
+          <div style="background:#13182a;padding:10px 16px;font-size:.85rem;font-weight:600;color:#7c9ef8;display:flex;align-items:center;gap:8px">
+            <span>✏️</span><span>${e.section || 'Section'}</span>
+          </div>
+          <div class="grid2" style="padding:14px;gap:12px;background:#1a1f2e">
+            <div>
+              <div style="font-size:.74rem;color:#94a3b8;margin-bottom:6px;font-weight:600">ORIGINAL TEXT SNIPPET</div>
+              <div style="background:#0f1117;border:1px solid #2a3347;border-radius:6px;padding:12px;font-size:.8rem;color:#94a3b8;max-height:140px;overflow-y:auto;line-height:1.6">${e.original || 'N/A'}</div>
+            </div>
+            <div>
+              <div style="font-size:.74rem;color:#4caf82;margin-bottom:6px;font-weight:600">REWRITTEN VERSION</div>
+              <div style="background:#0f1117;border:1px solid #2a4a35;border-radius:6px;padding:12px;font-size:.8rem;color:#e2e8f0;max-height:140px;overflow-y:auto;line-height:1.6">${e.rewritten || 'N/A'}</div>
+            </div>
+          </div>
+        </div>`).join('');
+      document.getElementById("editsCard").classList.remove("hidden");
+    }
+
+    document.getElementById("nextBtn").classList.remove("hidden");
+    document.getElementById("nextBtn").style.display = "flex";
+  }
+</script>
+{% endblock %}

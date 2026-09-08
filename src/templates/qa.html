@@ -1,49 +1,49 @@
 {% extends "base.html" %}
-{% block title %}Q&A — Research AI{% endblock %}
+{% block title %}Q&amp;A — ScholarAI{% endblock %}
 {% block content %}
 
 <div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
   <div>
     <h2 style="font-size:1.4rem;color:#7c9ef8;margin-bottom:4px">💬 Ask the Paper</h2>
-    <p style="color:#666;font-size:.88rem">Ask anything about the uploaded paper. Answers are grounded in the paper content using RAG.</p>
+    <p style="color:#8892b0;font-size:.88rem">Ask targeted questions about the loaded paper. Answers are retrieved using FAISS vector search and synthesized via Groq LLM.</p>
   </div>
-  <div id="paperTag" style="font-size:.8rem;color:#555"></div>
+  <div id="paperTag"></div>
 </div>
 
 <div id="noPaper" class="card hidden">
-  <p style="color:#888;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload one first →</a></p>
+  <p style="color:#94a3b8;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload a paper first &rarr;</a></p>
 </div>
 
 <div class="card" id="qaCard">
   <div style="display:flex;gap:10px;margin-bottom:6px;align-items:center">
     <input type="text" id="queryInput"
-           placeholder="e.g. What dataset was used? What is the main contribution?"
+           placeholder="e.g. What dataset was used? What baseline models were evaluated? What are the key limitations?"
            style="flex:1;background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:11px 14px;color:#e0e0e0;font-size:.9rem;outline:none"
            onfocus="this.style.borderColor='#7c9ef8'" onblur="this.style.borderColor='#2a3347'"
            onkeydown="if(event.key==='Enter') askQuestion()"/>
     <button class="btn btn-primary" id="askBtn" onclick="askQuestion()">Ask</button>
   </div>
-  <p style="font-size:.75rem;color:#444;margin-bottom:16px">Press Enter or click Ask</p>
+  <p style="font-size:.75rem;color:#64748b;margin-bottom:16px">Press Enter or click Ask</p>
 
   <!-- Suggested questions -->
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-    <span style="font-size:.75rem;color:#555;align-self:center">Try:</span>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What is the main contribution?</button>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What dataset was used?</button>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What are the results?</button>
-    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#888;border:1px solid #2a3347">What are the limitations?</button>
+    <span style="font-size:.75rem;color:#64748b;align-self:center">Try asking:</span>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#8892b0;border:1px solid #2a3347">What is the main contribution?</button>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#8892b0;border:1px solid #2a3347">What dataset was used?</button>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#8892b0;border:1px solid #2a3347">What are the quantitative results?</button>
+    <button class="btn" onclick="setQ(this.textContent)" style="font-size:.75rem;padding:4px 10px;background:#252d3d;color:#8892b0;border:1px solid #2a3347">What limitations are mentioned?</button>
   </div>
 
   <hr class="divider"/>
 
   <!-- History -->
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-    <span style="font-size:.78rem;color:#444">Q&A History</span>
+    <span style="font-size:.78rem;color:#64748b;font-weight:600">Q&amp;A History</span>
     <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'qaHistoryCard')">⊞</button>
   </div>
   <div id="qaHistoryCard" style="border:1px solid #2a3347;border-radius:10px;padding:12px;background:#0f1117">
     <div id="qaHistory" style="display:flex;flex-direction:column;gap:14px;max-height:520px;overflow-y:auto"></div>
-    <p id="emptyHint" style="color:#333;font-size:.85rem;text-align:center;padding:30px 0">Your Q&A history will appear here</p>
+    <p id="emptyHint" style="color:#475569;font-size:.85rem;text-align:center;padding:30px 0">Your Q&amp;A conversation will appear here</p>
   </div>
 </div>
 
@@ -68,19 +68,23 @@
   async function askQuestion(){
     const q = document.getElementById("queryInput").value.trim();
     if(!q) return;
-    setBtn("askBtn", true, "Thinking...");
+    setBtn("askBtn", true, "Searching & Thinking...");
     document.getElementById("emptyHint").classList.add("hidden");
-    try{
-      const res  = await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q})});
+    try {
+      const res = await fetch("/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q })
+      });
       const data = await res.json();
       if(data.error) throw new Error(data.error);
+
       renderQA(q, data.answer);
-      // Save to session
       const hist = SS.get("qaHistory") || [];
-      hist.push({q, a: data.answer});
+      hist.push({ q, a: data.answer });
       SS.set("qaHistory", hist);
       document.getElementById("queryInput").value = "";
-    } catch(e){
+    } catch(e) {
       renderQA(q, `**Error:** ${e.message}`);
     }
     setBtn("askBtn", false, "Ask");
@@ -89,10 +93,11 @@
   function renderQA(q, a){
     const el = document.getElementById("qaHistory");
     const div = document.createElement("div");
-    div.style.cssText = "background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:16px";
+    div.style.cssText = "background:#13182a;border:1px solid #1e2a40;border-radius:10px;padding:16px";
     div.innerHTML = `
-      <div style="color:#f0a04b;font-size:.8rem;font-weight:600;margin-bottom:8px;display:flex;gap:6px;align-items:center">
-        <span>Q</span><span style="color:#2a3347">|</span><span style="color:#c8d0e0;font-weight:400">${q}</span>
+      <div style="color:#f0a04b;font-size:.82rem;font-weight:600;margin-bottom:8px;display:flex;gap:8px;align-items:center">
+        <span class="badge badge-info" style="font-size:.7rem">QUESTION</span>
+        <span style="color:#e2e8f0;font-weight:500">${q}</span>
       </div>
       <div class="md-out" style="border:none;padding:0;background:transparent;max-height:none">${md(a)}</div>`;
     el.appendChild(div);

@@ -1,21 +1,25 @@
-import requests
 import re
-import time
+import requests
 import concurrent.futures
 from urllib.parse import quote_plus
+import numpy as np
 
-def clean_query(query):
-    """Step 2: Sanitizes the AI-generated topic into high-density keywords."""
-    if not query: return ""
-    # Remove common preamble patterns (keywords:, topics:, etc)
+from src.config import ENGINEERING_PUBLISHERS
+from src.rag import vector_store
+
+def clean_query(query: str) -> str:
+    """Sanitize topic or search keywords for Boolean and API compatibility."""
+    if not query:
+        return ""
+    # Remove common preamble patterns
     cleaned = re.sub(r'^(keywords?|topics?|terms?|search?|query?)\s*:\s*', '', query, flags=re.IGNORECASE)
-    # Remove smart quotes and normal quotes
+    # Remove smart and normal quotes
     cleaned = cleaned.replace('\u201c', '').replace('\u201d', '').replace('"', '').replace("'", "")
-    # Remove generic characters that break Boolean logic
+    # Remove brackets that break Boolean parsing
     cleaned = re.sub(r'[\[\](){}]', '', cleaned)
     return cleaned.strip()
 
-# Venue name normalization map — long institutional names to short badge labels
+# Normalization lookup table for publishers & academic venues
 _VENUE_MAP = [
     ("institute of electrical and electronics engineers", "IEEE"),
     ("ieee",           "IEEE"),
@@ -52,15 +56,13 @@ def normalize_venue(venue: str) -> str:
     for pattern, label in _VENUE_MAP:
         if pattern in vl:
             return label
-    # Truncate very long names
     return v if len(v) <= 30 else v[:27] + "..."
 
-def search_arxiv(query, sort_by="submittedDate"):
-    """Step 3: Tiered Search for ArXiv with Boolean logic and Sorting."""
-    if not query: return []
-    # query is already formatted as all:K1+AND+all:K2 from the tiered graph node
+def search_arxiv(query: str, sort_by: str = "submittedDate") -> list:
+    """Query ArXiv API with boolean keywords and sorting."""
+    if not query:
+        return []
     url = f"https://export.arxiv.org/api/query?search_query={query}&start=0&max_results=15"
-    
     if sort_by == "submittedDate":
         url += "&sortBy=submittedDate&sortOrder=descending"
     else:
@@ -76,7 +78,7 @@ def search_arxiv(query, sort_by="submittedDate"):
                 s_m = re.search(r'<summary>(.*?)</summary>', entry, re.DOTALL)
                 id_m = re.search(r'<id>(.*?)</id>', entry, re.DOTALL)
                 p_m = re.search(r'<published>(.*?)</published>', entry, re.DOTALL)
-                
+
                 if t_m and s_m and id_m:
                     abs_text = re.sub(r'\s+', ' ', s_m.group(1)).strip()
                     papers.append({
@@ -88,10 +90,11 @@ def search_arxiv(query, sort_by="submittedDate"):
                         "venue": "ArXiv"
                     })
         return papers
-    except:
+    except Exception:
         return []
 
-def search_semantic_scholar(query):
+def search_semantic_scholar(query: str) -> list:
+    """Query Semantic Scholar Graph API."""
     cleaned = clean_query(query)
     q_encoded = quote_plus(cleaned)
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={q_encoded}&limit=15&fields=title,abstract,year,url,venue"
@@ -101,7 +104,8 @@ def search_semantic_scholar(query):
             data = res.json()
             papers = []
             for item in data.get("data", []):
-                if not item.get("title") or not item.get("url"): continue
+                if not item.get("title") or not item.get("url"):
+                    continue
                 abstract = item.get("abstract") or ""
                 papers.append({
                     "title": item.get("title"),
@@ -112,11 +116,12 @@ def search_semantic_scholar(query):
                     "venue": normalize_venue(item.get("venue") or "Semantic Scholar")
                 })
             return papers
-    except: pass
+    except Exception:
+        pass
     return []
 
-def search_openalex(query):
-    """Step 4: Parallel Search on OpenAlex with Inverted Index Reconstruction."""
+def search_openalex(query: str) -> list:
+    """Query OpenAlex API and reconstruct abstracts from inverted index."""
     cleaned = clean_query(query)
     words = cleaned.split()
     q_encoded = "+".join(words)
@@ -129,18 +134,19 @@ def search_openalex(query):
             for item in data.get("results", []):
                 title = item.get("display_name")
                 link = item.get("doi") or f"https://openalex.org/{item.get('id').split('/')[-1]}"
-                if not title or not link: continue
-                
-                # Reconstruct abstract from inverted index
+                if not title or not link:
+                    continue
+
                 abstract = ""
                 idx = item.get("abstract_inverted_index")
                 if idx:
                     word_positions = {}
                     for word, positions in idx.items():
-                        for pos in positions: word_positions[pos] = word
+                        for pos in positions:
+                            word_positions[pos] = word
                     sorted_words = [word_positions[i] for i in sorted(word_positions.keys())]
                     abstract = " ".join(sorted_words)
-                
+
                 papers.append({
                     "title": title,
                     "summary": abstract,
@@ -150,10 +156,12 @@ def search_openalex(query):
                     "venue": normalize_venue((item.get("primary_location") or {}).get("source", {}).get("display_name", "OpenAlex"))
                 })
             return papers
-    except: pass
+    except Exception:
+        pass
     return []
 
-def search_crossref(query):
+def search_crossref(query: str) -> list:
+    """Query CrossRef API."""
     cleaned = clean_query(query)
     q_encoded = quote_plus(cleaned)
     url = f"https://api.crossref.org/works?query={q_encoded}&rows=15"
@@ -165,15 +173,13 @@ def search_crossref(query):
             for item in data.get("message", {}).get("items", []):
                 title_list = item.get("title", [])
                 link = item.get("URL")
-                if not title_list or not link: continue
-                
-                # Crossref abstracts are often missing or in JATS XML
+                if not title_list or not link:
+                    continue
+
                 abstract = item.get("abstract", "")
-                abstract = re.sub(r'<[^>]+>', '', abstract) # simple tag strip
-                
-                # Extract DOI for abstract enrichment later
+                abstract = re.sub(r'<[^>]+>', '', abstract)
                 doi = item.get("DOI", "")
-                
+
                 papers.append({
                     "title": title_list[0],
                     "summary": abstract,
@@ -184,12 +190,12 @@ def search_crossref(query):
                     "venue": normalize_venue(item.get("container-title", ["CrossRef"])[0])
                 })
             return papers
-    except: pass
+    except Exception:
+        pass
     return []
 
-
-def _fetch_abstract_by_doi(doi):
-    """Try to fetch an abstract from Semantic Scholar using a DOI."""
+def _fetch_abstract_by_doi(doi: str):
+    """Fetch abstract from Semantic Scholar using DOI."""
     if not doi:
         return None
     try:
@@ -199,13 +205,12 @@ def _fetch_abstract_by_doi(doi):
             abstract = res.json().get("abstract", "")
             if abstract and len(abstract) > 50:
                 return abstract
-    except:
+    except Exception:
         pass
     return None
 
-
-def _fetch_abstract_by_title(title):
-    """Fallback: search Semantic Scholar by title to find the abstract."""
+def _fetch_abstract_by_title(title: str):
+    """Fallback: search Semantic Scholar by title for paper abstract."""
     if not title:
         return None
     try:
@@ -218,37 +223,26 @@ def _fetch_abstract_by_title(title):
                 abstract = data[0].get("abstract", "")
                 if abstract and len(abstract) > 50:
                     return abstract
-    except:
+    except Exception:
         pass
     return None
 
-
-def enrich_missing_abstracts(papers):
-    """For papers without abstracts, try to fetch from Semantic Scholar.
-    
-    Uses DOI-based lookup first (fast, precise), then falls back to
-    title-based search. Runs in parallel for speed.
-    """
+def enrich_missing_abstracts(papers: list) -> list:
+    """Enrich papers that lack abstracts via parallel Semantic Scholar lookups."""
     papers_needing_enrichment = [
         (i, p) for i, p in enumerate(papers) if not p.get("has_abstract")
     ]
-    
     if not papers_needing_enrichment:
-        return papers  # all papers already have abstracts
-    
+        return papers
+
     def enrich_one(idx_paper):
         idx, paper = idx_paper
-        # Try DOI first (precise match)
         doi = paper.get("doi", "")
         abstract = _fetch_abstract_by_doi(doi)
-        
-        # Fallback to title search
         if not abstract:
             abstract = _fetch_abstract_by_title(paper.get("title", ""))
-        
         return idx, abstract
-    
-    # Run enrichment in parallel (max 4 at a time to respect rate limits)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(enrich_one, ip) for ip in papers_needing_enrichment]
         for future in concurrent.futures.as_completed(futures):
@@ -257,8 +251,46 @@ def enrich_missing_abstracts(papers):
                 if abstract:
                     papers[idx]["summary"] = abstract
                     papers[idx]["has_abstract"] = True
-                    papers[idx]["enriched"] = True  # mark as enriched
-            except:
+                    papers[idx]["enriched"] = True
+            except Exception:
                 pass
-    
     return papers
+
+def _engineering_bonus(paper: dict) -> float:
+    """Return +0.10 relevance boost if published by a prestigious engineering venue."""
+    venue = paper.get("venue", "").lower()
+    if any(pub in venue for pub in ENGINEERING_PUBLISHERS):
+        return 0.10
+    return 0.0
+
+def semantic_rerank(query_summary: str, candidate_list: list) -> list:
+    """Sort papers by cosine similarity to the paper summary + engineering publisher bonus."""
+    if not candidate_list or not query_summary:
+        return candidate_list
+    try:
+        safe_candidates = [p for p in candidate_list if p.get('title')]
+        if not safe_candidates:
+            return []
+
+        texts = [f"{p['title']} {p.get('summary', '')}" for p in safe_candidates]
+        query_emb = vector_store.encode([query_summary])[0]
+        candidate_embs = vector_store.encode(texts)
+
+        norm_q = np.linalg.norm(query_emb)
+        for i, p in enumerate(safe_candidates):
+            emb = candidate_embs[i]
+            norm_e = np.linalg.norm(emb)
+            base_score = np.dot(query_emb, emb) / (norm_q * norm_e) if (norm_q > 0 and norm_e > 0) else 0.0
+            p["relevance_score"] = float(base_score) + _engineering_bonus(p)
+
+        safe_candidates.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+        top_score = safe_candidates[0].get("relevance_score", 0)
+        dynamic_threshold = max(0.15, min(0.6, top_score * 0.75))
+
+        filtered = [p for p in safe_candidates if p.get("relevance_score", 0) >= dynamic_threshold]
+        if len(filtered) < 5:
+            return safe_candidates[:5]
+        return filtered
+    except Exception as e:
+        print(f"Reranking error: {e}")
+        return candidate_list[:6]

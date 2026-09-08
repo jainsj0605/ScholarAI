@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Compare — ScholarAI{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <div>
+    <h2 style="font-size:1.4rem;color:#f0a04b;margin-bottom:4px">🔍 Comparative Literature Study</h2>
+    <p style="color:#8892b0;font-size:.88rem">Searches ArXiv, Semantic Scholar, OpenAlex, and CrossRef for related work, filters by abstract quality, reranks with engineering venue weighting, and analyzes differences.</p>
+  </div>
+  <div id="paperTag"></div>
+</div>
+
+<div id="noPaper" class="card hidden">
+  <p style="color:#94a3b8;font-size:.9rem">No paper loaded yet. <a href="/" style="color:#7c9ef8">Upload a paper first &rarr;</a></p>
+</div>
+
+<div id="mainContent">
+  <div class="card">
+    <div class="card-title">🔎 Search Settings</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <label style="font-size:.78rem;color:#8892b0;display:block;margin-bottom:6px">Search topic / keywords (auto-extracted from paper)</label>
+        <input type="text" id="topicInput"
+               style="width:100%;background:#0f1117;border:1px solid #2a3347;border-radius:8px;padding:10px 14px;color:#e0e0e0;font-size:.88rem;outline:none"
+               onfocus="this.style.borderColor='#f0a04b'" onblur="this.style.borderColor='#2a3347'"/>
+      </div>
+      <div style="padding-top:20px">
+        <button class="btn btn-warning" id="compareBtn" onclick="runComparison()">Run Comparative Study</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results (hidden until run) -->
+  <div id="resultsSection" class="hidden">
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between">
+        <span>📚 Related Papers Discovered <span id="papersCount" class="badge badge-info" style="margin-left:8px"></span></span>
+        <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'papersCard')">⊞</button>
+      </div>
+      <div id="papersCard" style="border:1px solid #2a3347;border-radius:10px;padding:14px;background:#0f1117">
+        <div id="papersList" style="display:flex;flex-direction:column;gap:12px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between">
+        <span>📊 Comparative Analysis</span>
+        <button class="expand-btn" title="Maximize" onclick="toggleExpand(this,'comparisonCard')">⊞</button>
+      </div>
+      <div id="comparisonCard">
+        <div id="comparisonOutput" class="md-out" style="max-height:500px"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px">
+      <a href="/improve"><button class="btn btn-success">Continue to Critique &amp; Rewrite &rarr;</button></a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const topic = SS.str("topic");
+  if(!topic){
+    document.getElementById("noPaper").classList.remove("hidden");
+    document.getElementById("mainContent").classList.add("hidden");
+  } else {
+    document.getElementById("topicInput").value = topic;
+    document.getElementById("paperTag").innerHTML = `<span class="badge badge-info">${topic}</span>`;
+  }
+
+  // Restore previous comparison results if available
+  const savedComparison = SS.str("comparison");
+  const savedPapers     = SS.get("papers");
+  if(savedComparison){
+    showResults(savedComparison, savedPapers || []);
+  }
+
+  async function runComparison(){
+    const summary = SS.str("summary");
+    const currentTopic = document.getElementById("topicInput").value.trim();
+    if(!currentTopic) return;
+
+    setBtn("compareBtn", true, "Searching multi-engines & analyzing...");
+    document.getElementById("resultsSection").classList.add("hidden");
+
+    try {
+      const res = await fetch("/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary, topic: currentTopic })
+      });
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+
+      SS.set("comparison", data.comparison);
+      SS.set("papers", data.papers || []);
+      showResults(data.comparison, data.papers || []);
+    } catch(e) {
+      alert("Comparative study error: " + e.message);
+    }
+    setBtn("compareBtn", false, "Run Comparative Study");
+  }
+
+  function showResults(comparison, papers){
+    document.getElementById("comparisonOutput").innerHTML = md(comparison);
+    document.getElementById("papersCount").textContent = `${papers.length} papers`;
+
+    if(papers && papers.length > 0){
+      document.getElementById("papersList").innerHTML = papers.map(p => `
+        <div style="background:#13182a;border:1px solid #1e2a40;border-radius:8px;padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px">
+            <a href="${p.link}" target="_blank" style="color:#7c9ef8;text-decoration:none;font-weight:600;font-size:.9rem;line-height:1.4">
+              ${p.title} ↗
+            </a>
+            <span class="badge ${p.venue === 'ArXiv' ? 'badge-info' : 'badge-ok'}" style="white-space:nowrap">${p.venue || 'Academic'}</span>
+          </div>
+          <div style="font-size:.76rem;color:#8892b0;margin-bottom:6px">
+            Published: ${p.year || 'Unknown'} ${p.doi ? '• DOI: ' + p.doi : ''}
+          </div>
+          <p style="font-size:.82rem;color:#c8d0e0;line-height:1.6">${p.summary ? p.summary.substring(0, 320) + '...' : 'No public abstract available.'}</p>
+        </div>
+      `).join("");
+    } else {
+      document.getElementById("papersList").innerHTML = "<p style='color:#666'>No related papers found for this topic.</p>";
+    }
+
+    document.getElementById("resultsSection").classList.remove("hidden");
+  }
+</script>
+{% endblock %}
