@@ -8,18 +8,26 @@ from sentence_transformers import SentenceTransformer
 from src.config import EMBEDDING_MODEL_NAME, EMBEDDING_DIM, DEFAULT_CHUNK_SIZE, DEFAULT_TOP_K
 
 class VectorStore:
-    """Manages document chunk embeddings and FAISS vector indexing."""
-    def __init__(self, model_name: str = EMBEDDING_MODEL_NAME, dimension: int = EMBEDDING_DIM):
+    """Manages document chunk embeddings and FAISS vector indexing with ultra-low RAM footprint."""
+    def __init__(self, dimension: int = EMBEDDING_DIM):
         self.dimension = dimension
-        self.model_name = model_name
         self._embed_model = None
+        self._is_fastembed = False
         self.index = faiss.IndexFlatL2(self.dimension)
         self.documents: List[str] = []
 
     @property
     def embed_model(self):
         if self._embed_model is None:
-            self._embed_model = SentenceTransformer(self.model_name)
+            try:
+                from fastembed import TextEmbedding
+                # BAAI/bge-small-en-v1.5: 384-dimensional ONNX model (<50MB RAM, no PyTorch bloat)
+                self._embed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+                self._is_fastembed = True
+            except Exception:
+                from sentence_transformers import SentenceTransformer
+                self._embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+                self._is_fastembed = False
         return self._embed_model
 
     def clear(self):
@@ -29,20 +37,23 @@ class VectorStore:
     def add_chunks(self, chunks: List[str]):
         if not chunks:
             return
-        embs = self.embed_model.encode(chunks)
+        embs = self.encode(chunks)
         self.index.add(np.array(embs, dtype=np.float32))
         self.documents.extend(chunks)
 
     def retrieve(self, query: str, k: int = DEFAULT_TOP_K) -> List[str]:
         if not self.documents:
             return []
-        emb = self.embed_model.encode([query])
+        emb = self.encode([query])
         top_k = min(k, len(self.documents))
         _, indices = self.index.search(np.array(emb, dtype=np.float32), top_k)
         return [self.documents[i] for i in indices[0] if 0 <= i < len(self.documents)]
 
     def encode(self, texts: List[str]) -> np.ndarray:
-        return self.embed_model.encode(texts)
+        model = self.embed_model
+        if getattr(self, "_is_fastembed", False):
+            return np.array(list(model.embed(texts)), dtype=np.float32)
+        return np.array(model.encode(texts), dtype=np.float32)
 
 # Global singleton instance for application session
 vector_store = VectorStore()
