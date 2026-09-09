@@ -1,4 +1,3 @@
-import os
 from typing import List, Tuple
 try:
     import pymupdf as fitz
@@ -23,13 +22,16 @@ class VectorStore:
         if self._embed_model is None:
             try:
                 from fastembed import TextEmbedding
-                # BAAI/bge-small-en-v1.5: 384-dimensional ONNX model (<50MB RAM, no PyTorch bloat)
-                self._embed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+                # BAAI/bge-small-en-v1.5: 384-dimensional ONNX model (<50MB RAM, threads=1 prevents OOM)
+                self._embed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5", threads=1)
                 self._is_fastembed = True
-            except Exception:
-                from sentence_transformers import SentenceTransformer
-                self._embed_model = SentenceTransformer("all-MiniLM-L6-v2")
-                self._is_fastembed = False
+            except Exception as e:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    self._embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+                    self._is_fastembed = False
+                except Exception:
+                    raise RuntimeError(f"Could not load embedding model: {e}")
         return self._embed_model
 
     def clear(self):
@@ -65,20 +67,30 @@ def parse_pdf(file_path: str) -> Tuple[str, List[str]]:
     
     Returns:
         text (str): Extracted plain text across all pages.
-        images (List[str]): File paths of extracted figure images.
+        images (List[str]): File paths of extracted figure images (capped to max 5 substantial figures).
     """
     doc = fitz.open(file_path)
     text = ""
     images = []
-    for i, page in enumerate(doc):
+    max_images = 5
+    for page in doc:
         text += page.get_text()
-        for img in page.get_images(full=True):
-            xref = img[0]
-            base_image = doc.extract_image(xref)
-            img_path = f"temp_{xref}.png"
-            with open(img_path, "wb") as f:
-                f.write(base_image["image"])
-            images.append(img_path)
+        if len(images) < max_images:
+            for img in page.get_images(full=True):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image.get("image", b"")
+                width = base_image.get("width", 0)
+                height = base_image.get("height", 0)
+                # Filter out tiny icons, logos, decorative lines, and math glyphs (<5KB or <100px)
+                if len(image_bytes) < 5000 or width < 100 or height < 100:
+                    continue
+                img_path = f"temp_{xref}.png"
+                with open(img_path, "wb") as f:
+                    f.write(image_bytes)
+                images.append(img_path)
+                if len(images) >= max_images:
+                    break
     doc.close()
     return text, images
 

@@ -6,7 +6,7 @@ except ImportError:
 from flask import Flask, request, jsonify, send_file, render_template
 
 from src.config import UPLOAD_PDF_PATH
-from src.rag import parse_pdf, chunk_text, store_embeddings
+from src.rag import parse_pdf, chunk_text, store_embeddings, vector_store
 from src.workflows import (
     PaperState,
     upload_graph,
@@ -18,6 +18,12 @@ from src.pdf_builder import build_analysis_pdf, build_edited_original_pdf
 
 # Initialize Flask application
 app = Flask(__name__, template_folder="templates")
+
+# Warm up embedding model at startup so first request doesn't block on model init
+try:
+    _ = vector_store.embed_model
+except Exception as _init_err:
+    print(f"[Warning] Model pre-warm notice: {_init_err}")
 
 # =========================
 # WEB PAGE ROUTES

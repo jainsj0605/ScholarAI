@@ -4,18 +4,19 @@
 
 <div style="margin-bottom:28px">
   <h2 style="font-size:1.4rem;color:#7c9ef8;margin-bottom:6px">Upload Research Paper</h2>
-  <p style="color:#8892b0;font-size:.88rem">Upload a research paper in PDF format. ScholarAI extracts text, figures, generates an in-depth RAG summary, and enables downstream Q&amp;A, comparative study, and rewriting.</p>
+  <p style="color:#8892b0;font-size:.88rem">Upload a research paper in PDF format. ScholarAI extracts text, figures,
+    generates an in-depth RAG summary, and enables downstream Q&amp;A, comparative study, and rewriting.</p>
 </div>
 
 <!-- Upload card -->
 <div class="card">
   <div class="card-title">📄 Select Academic PDF</div>
-  <div id="dropZone" style="border:2px dashed #2a3347;border-radius:10px;padding:48px;text-align:center;cursor:pointer;transition:.2s"
-       onclick="document.getElementById('fileInput').click()"
-       ondragover="event.preventDefault();this.style.borderColor='#7c9ef8'"
-       ondragleave="this.style.borderColor='#2a3347'"
-       ondrop="handleDrop(event)">
-    <input type="file" id="fileInput" accept=".pdf" style="display:none" onchange="handleFile(event)"/>
+  <div id="dropZone"
+    style="border:2px dashed #2a3347;border-radius:10px;padding:48px;text-align:center;cursor:pointer;transition:.2s"
+    onclick="document.getElementById('fileInput').click()"
+    ondragover="event.preventDefault();this.style.borderColor='#7c9ef8'" ondragleave="this.style.borderColor='#2a3347'"
+    ondrop="handleDrop(event)">
+    <input type="file" id="fileInput" accept=".pdf" style="display:none" onchange="handleFile(event)" />
     <div style="font-size:3rem;margin-bottom:10px">📂</div>
     <p id="fileLabel" style="color:#94a3b8;font-size:.9rem">Click or drag &amp; drop a PDF file here</p>
   </div>
@@ -34,8 +35,10 @@
 
   <!-- Tabs -->
   <div style="display:flex;gap:4px;margin-bottom:14px">
-    <button class="btn btn-ghost" id="tabSumBtn" onclick="switchTab('sum')" style="font-size:.8rem;padding:5px 14px">Summary</button>
-    <button class="btn" id="tabFigBtn" onclick="switchTab('fig')" style="font-size:.8rem;padding:5px 14px;background:#252d3d;color:#8892b0;border:1px solid #2a3347">Figures</button>
+    <button class="btn btn-ghost" id="tabSumBtn" onclick="switchTab('sum')"
+      style="font-size:.8rem;padding:5px 14px">Summary</button>
+    <button class="btn" id="tabFigBtn" onclick="switchTab('fig')"
+      style="font-size:.8rem;padding:5px 14px;background:#252d3d;color:#8892b0;border:1px solid #2a3347">Figures</button>
   </div>
 
   <div id="tabSum" class="md-out" style="max-height:450px"></div>
@@ -47,28 +50,36 @@
   <div class="card-title">🚀 Next Steps</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
     <a href="/qa" style="text-decoration:none">
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#7c9ef8'" onmouseout="this.style.borderColor='#2a3347'">
+      <div
+        style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer"
+        onmouseover="this.style.borderColor='#7c9ef8'" onmouseout="this.style.borderColor='#2a3347'">
         <div style="font-size:1.6rem;margin-bottom:8px">💬</div>
         <div style="color:#7c9ef8;font-weight:600;font-size:.9rem;margin-bottom:4px">Interactive Q&amp;A</div>
         <div style="color:#8892b0;font-size:.8rem">Ask questions grounded in the paper text via vector RAG</div>
       </div>
     </a>
     <a href="/compare" style="text-decoration:none">
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#f0a04b'" onmouseout="this.style.borderColor='#2a3347'">
+      <div
+        style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer"
+        onmouseover="this.style.borderColor='#f0a04b'" onmouseout="this.style.borderColor='#2a3347'">
         <div style="font-size:1.6rem;margin-bottom:8px">🔍</div>
         <div style="color:#f0a04b;font-weight:600;font-size:.9rem;margin-bottom:4px">Literature Comparison</div>
         <div style="color:#8892b0;font-size:.8rem">Retrieve recent papers across arXiv, Semantic Scholar, OpenAlex</div>
       </div>
     </a>
     <a href="/improve" style="text-decoration:none">
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#4caf82'" onmouseout="this.style.borderColor='#2a3347'">
+      <div
+        style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer"
+        onmouseover="this.style.borderColor='#4caf82'" onmouseout="this.style.borderColor='#2a3347'">
         <div style="font-size:1.6rem;margin-bottom:8px">✏️</div>
         <div style="color:#4caf82;font-weight:600;font-size:.9rem;margin-bottom:4px">Critique &amp; Rewrite</div>
         <div style="color:#8892b0;font-size:.8rem">Identify weaknesses and generate publication-ready edits</div>
       </div>
     </a>
     <a href="/download" style="text-decoration:none">
-      <div style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#2a3347'">
+      <div
+        style="background:#0f1117;border:1px solid #2a3347;border-radius:10px;padding:18px;transition:.2s;cursor:pointer"
+        onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#2a3347'">
         <div style="font-size:1.6rem;margin-bottom:8px">📥</div>
         <div style="color:#a78bfa;font-weight:600;font-size:.9rem;margin-bottom:4px">Export PDF</div>
         <div style="color:#8892b0;font-size:.8rem">Download the in-place edited paper and full analysis report</div>
@@ -84,27 +95,27 @@
 
   // Restore if already uploaded
   const savedSummary = SS.str("summary");
-  const savedTopic   = SS.str("topic");
-  if(savedSummary){
+  const savedTopic = SS.str("topic");
+  if (savedSummary) {
     showResults(savedSummary, SS.get("vision") || [], savedTopic);
   }
 
-  function handleFile(e){ setFile(e.target.files[0]); }
-  function handleDrop(e){
+  function handleFile(e) { setFile(e.target.files[0]); }
+  function handleDrop(e) {
     e.preventDefault();
     document.getElementById("dropZone").style.borderColor = "#2a3347";
     const f = e.dataTransfer.files[0];
-    if(f && f.type === "application/pdf") setFile(f);
+    if (f && f.type === "application/pdf") setFile(f);
   }
-  function setFile(f){
+  function setFile(f) {
     selectedFile = f;
-    if(!f) return;
-    document.getElementById("fileLabel").textContent = `${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
+    if (!f) return;
+    document.getElementById("fileLabel").textContent = `${f.name} (${(f.size / 1024 / 1024).toFixed(2)} MB)`;
     document.getElementById("uploadBtn").disabled = false;
   }
 
-  async function uploadPaper(){
-    if(!selectedFile) return;
+  async function uploadPaper() {
+    if (!selectedFile) return;
     setBtn("uploadBtn", true, "Extracting & Analyzing...");
     document.getElementById("uploadStatus").innerHTML = "";
 
@@ -113,8 +124,20 @@
 
     try {
       const res = await fetch("/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if(data.error) throw new Error(data.error);
+      const rawText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (_parseErr) {
+        if (res.status === 502 || res.status === 504) {
+          throw new Error("Server timed out or restarted while analyzing. Please retry.");
+        }
+        throw new Error(`Server response error (${res.status}): ${rawText.slice(0, 120) || 'Connection dropped'}`);
+      }
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `Server error (${res.status})`);
+      }
 
       // Save into session
       SS.set("summary", data.summary);
@@ -125,16 +148,16 @@
       showResults(data.summary, data.vision || [], data.topic);
       refreshNav();
       document.getElementById("uploadStatus").innerHTML = `<span class="badge badge-ok">✓ Analysis complete</span>`;
-    } catch(e) {
+    } catch (e) {
       document.getElementById("uploadStatus").innerHTML = `<span class="badge badge-err">✗ ${e.message}</span>`;
     }
     setBtn("uploadBtn", false, "Analyze Paper");
   }
 
-  function showResults(summary, vision, topic){
+  function showResults(summary, vision, topic) {
     document.getElementById("tabSum").innerHTML = md(summary);
 
-    if(vision && vision.length > 0){
+    if (vision && vision.length > 0) {
       document.getElementById("tabFig").innerHTML = vision.map((v, i) =>
         `<div style="margin-bottom:20px;border-bottom:1px solid #2a3347;padding-bottom:14px">
            <h3 style="color:#f0a04b;margin-bottom:8px">Figure ${i + 1}</h3>
@@ -145,17 +168,17 @@
       document.getElementById("tabFig").innerHTML = "<p style='color:#666'>No extractable figures detected in document.</p>";
     }
 
-    if(topic) document.getElementById("topicBadge").textContent = topic;
+    if (topic) document.getElementById("topicBadge").textContent = topic;
     document.getElementById("summaryCard").classList.remove("hidden");
     document.getElementById("nextCard").classList.remove("hidden");
   }
 
-  function switchTab(t){
+  function switchTab(t) {
     const sBtn = document.getElementById("tabSumBtn");
     const fBtn = document.getElementById("tabFigBtn");
     const sEl = document.getElementById("tabSum");
     const fEl = document.getElementById("tabFig");
-    if(t === "sum"){
+    if (t === "sum") {
       sEl.classList.remove("hidden");
       fEl.classList.add("hidden");
       sBtn.className = "btn btn-ghost";
